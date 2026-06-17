@@ -1,0 +1,43 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+    <meta charset="UTF-8">
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <!-- Service-Menü -->
+    <div id="menu" class="hidden">
+        <div class="menu-box">
+            <div class="menu-head">
+                <div class="head-left">
+                    <span class="dot"></span>
+                    <span class="title">BEGLEITUNG</span>
+                </div>
+                <span class="subtitle">Wähle deinen Service</span>
+            </div>
+
+            <div id="services" class="services"></div>
+
+            <div class="menu-foot">
+                <button id="cancel" class="btn-cancel">
+                    <span>ABBRECHEN</span>
+                    <span class="esc">ESC</span>
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Fortschritt -->
+    <div id="progress" class="hidden">
+        <div class="prog-box">
+            <div class="prog-top">
+                <span class="prog-label" id="prog-label">SERVICE</span>
+                <span class="prog-live">● LIVE</span>
+            </div>
+            <div class="prog-bar"><div class="prog-fill" id="prog-fill"></div></div>
+        </div>
+    </div>
+
+    <script src="script.js"></script>
+</body>
+</html>

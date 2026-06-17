@@ -1,0 +1,234 @@
+* {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+    font-family: 'Segoe UI', 'Inter', system-ui, sans-serif;
+    user-select: none;
+}
+
+:root {
+    --bg:      transparent;
+    --panel:   transparent;
+    --line:    transparent;
+    --accent:  #ff1f6b;
+    --accent2: #ff6aa0;
+    --gold:    #ffcc55;
+    --text:    #f6f5f7;
+    --muted:   #9b99a4;
+}
+
+html, body { width: 100%; height: 100%; background: transparent; overflow: hidden; }
+.hidden { display: none !important; }
+
+/* ─── Service-Menü ─────────────────────────────── */
+#menu {
+    position: absolute;
+    top: 50%; right: 4.5%;
+    transform: translateY(-50%);
+    animation: slideIn .35s cubic-bezier(.2,.8,.2,1);
+    pointer-events: auto;
+}
+
+@keyframes slideIn {
+    from { opacity: 0; transform: translateY(-50%) translateX(40px); }
+    to   { opacity: 1; transform: translateY(-50%) translateX(0); }
+}
+
+.menu-box {
+    width: 360px;
+    background: transparent;
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+    border: none;
+    border-radius: 0;
+    overflow: visible;
+    box-shadow: none;
+}
+
+.menu-head {
+    padding: 0;
+    background: transparent;
+    border-bottom: none;
+}
+
+.head-left { display: flex; align-items: center; gap: 10px; }
+
+.menu-head .dot {
+    width: 9px; height: 9px; border-radius: 50%;
+    background: var(--accent);
+    box-shadow: 0 0 14px var(--accent);
+    animation: pulse 1.6s ease-in-out infinite;
+}
+
+@keyframes pulse {
+    0%,100% { opacity: 1; transform: scale(1); }
+    50%     { opacity: .5; transform: scale(.75); }
+}
+
+.menu-head .title {
+    font-size: 16px; font-weight: 800; letter-spacing: 4px;
+    color: var(--text);
+    background: linear-gradient(90deg, #fff, var(--accent2));
+    -webkit-background-clip: text; background-clip: text;
+    -webkit-text-fill-color: transparent;
+    text-shadow: none;
+}
+
+.menu-head .subtitle {
+    display: block; margin-top: 6px; margin-left: 19px;
+    font-size: 11px; letter-spacing: 1.5px; color: var(--muted); text-transform: uppercase;
+    text-shadow: none;
+}
+
+.services { padding: 0; display: flex; flex-direction: column; gap: 12px; }
+
+/* ─── Foto-Karte ─────────────────────────────── */
+.svc {
+    position: relative;
+    height: 112px;
+    border-radius: 0;
+    overflow: hidden;
+    cursor: pointer;
+    border: none;
+    transition: transform .18s ease;
+    transform: translateZ(0);
+    background: transparent;
+}
+
+.svc .svc-img {
+    position: absolute; inset: 0;
+    background-size: cover;
+    background-position: center;
+    transition: transform .5s cubic-bezier(.2,.8,.2,1), filter .3s ease;
+    filter: saturate(105%) brightness(.78);
+    opacity: 1;
+}
+
+.svc .svc-shade {
+    position: absolute; inset: 0;
+    background: transparent;
+}
+
+.svc .svc-body {
+    position: absolute; inset: 0;
+    padding: 14px 16px;
+    display: flex; flex-direction: column; justify-content: flex-end;
+    background: transparent;
+}
+
+.svc .svc-tag {
+    position: absolute; top: 12px; left: 14px;
+    font-size: 9px; font-weight: 700; letter-spacing: 1.5px;
+    text-transform: uppercase; color: var(--accent2);
+    background: transparent;
+    border: none;
+    padding: 0;
+    border-radius: 0;
+    text-shadow: 0 2px 8px rgba(0,0,0,.9);
+}
+
+.svc .name {
+    font-size: 18px; font-weight: 800; color: #fff; letter-spacing: .5px;
+    text-shadow: 0 2px 12px rgba(0,0,0,.9);
+}
+
+.svc .price {
+    position: absolute; top: 10px; right: 12px;
+    font-size: 15px; font-weight: 800; color: #fff;
+    background: transparent;
+    padding: 0;
+    border-radius: 0;
+    font-variant-numeric: tabular-nums;
+    box-shadow: none;
+    text-shadow: 0 2px 8px rgba(0,0,0,.9);
+}
+
+.svc .go {
+    margin-top: 4px;
+    font-size: 10px; letter-spacing: 1.5px; color: var(--muted); text-transform: uppercase;
+    opacity: 0; transform: translateX(-6px); transition: all .2s ease;
+    text-shadow: 0 2px 8px rgba(0,0,0,.9);
+}
+
+.svc:hover {
+    transform: translateY(-3px);
+    border-color: transparent;
+    box-shadow: none;
+}
+.svc:hover .svc-img { transform: scale(1.08); filter: saturate(120%) brightness(.92); }
+.svc:hover .go { opacity: 1; transform: translateX(0); }
+.svc:active { transform: translateY(-1px) scale(.99); }
+
+.menu-foot { padding: 0; }
+
+.btn-cancel {
+    width: 100%;
+    display: flex; align-items: center; justify-content: center; gap: 10px;
+    padding: 12px;
+    background: transparent;
+    border: none;
+    border-radius: 0;
+    color: var(--muted);
+    font-size: 12px; font-weight: 700; letter-spacing: 2px;
+    cursor: pointer; transition: all .15s ease;
+    text-shadow: 0 2px 8px rgba(0,0,0,.9);
+}
+.btn-cancel .esc {
+    font-size: 10px; padding: 0;
+    background: transparent; border: none; letter-spacing: 1px;
+}
+.btn-cancel:hover { color: var(--text); border-color: transparent; background: transparent; }
+
+/* ─── Fortschritt ──────────────────────────────── */
+#progress {
+    position: absolute; bottom: 11%; left: 50%;
+    transform: translateX(-50%);
+    animation: fadeUp .3s ease;
+    pointer-events: none;
+}
+@keyframes fadeUp { from { opacity: 0; transform: translateX(-50%) translateY(12px); } to { opacity: 1; transform: translateX(-50%) translateY(0); } }
+
+.prog-box {
+    width: 340px;
+    background: transparent;
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+    border: none;
+    border-radius: 0;
+    padding: 0;
+    box-shadow: none;
+}
+
+.prog-top { display: flex; align-items: center; justify-content: space-between; margin-bottom: 11px; }
+
+.prog-label { font-size: 12px; font-weight: 800; letter-spacing: 2.5px; color: var(--text); text-shadow: 0 2px 8px rgba(0,0,0,.9); }
+
+.prog-live {
+    font-size: 9px; font-weight: 700; letter-spacing: 1.5px; color: var(--accent);
+    animation: pulse 1.4s ease-in-out infinite;
+    text-shadow: 0 2px 8px rgba(0,0,0,.9);
+}
+
+.prog-bar {
+    width: 100%; height: 6px;
+    background: transparent;
+    border-radius: 0; overflow: hidden;
+    position: relative;
+}
+
+.prog-fill {
+    height: 100%; width: 0%;
+    background: linear-gradient(90deg, var(--accent), var(--accent2), var(--gold));
+    border-radius: 0;
+    box-shadow: 0 0 16px var(--accent);
+    transition: width 1s linear;
+    position: relative;
+}
+.prog-fill::after {
+    content: '';
+    position: absolute; inset: 0;
+    background: linear-gradient(90deg, transparent, rgba(255,255,255,.45), transparent);
+    background-size: 40px 100%;
+    animation: shimmer 1s linear infinite;
+}
+@keyframes shimmer { from { background-position: -40px 0; } to { background-position: 240px 0; } }
