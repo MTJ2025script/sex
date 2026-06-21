@@ -23,7 +23,7 @@ local RECRUIT_FAILSAFE_MS             = 20000
 local FOLLOW_FAILSAFE_BUFFER_MS       = 15000
 local SERVICE_FAILSAFE_BUFFER_MS      = 30000
 local DEFAULT_POST_SERVICE_WATCHDOG_MS = 8000
-local ENTRY_STABILIZE_MS              = 1200
+local ENTRY_STABILIZE_MS              = 2000
 
 local stateChangedAt           = GetGameTimer()
 local serviceFailSafeUntil     = 0
@@ -440,6 +440,19 @@ local function preparePedForRecruitment(ped)
 end
 
 -- ════════════════════════════════════════════════════════════════
+--  PED IM SITZ SPERREN
+--  Muss nach TaskEnterVehicle UND nach jedem SetPedIntoVehicle
+--  aufgerufen werden, damit GTAs Ambient-KI den Ped nicht sofort
+--  wieder aussteigen lässt.
+-- ════════════════════════════════════════════════════════════════
+local function lockPedInSeat(ped)
+    if not ped or ped == 0 or not DoesEntityExist(ped) then return end
+    SetBlockingOfNonTemporaryEvents(ped, true)
+    SetPedKeepTask(ped, true)
+    SetPedConfigFlag(ped, 26, true)
+end
+
+-- ════════════════════════════════════════════════════════════════
 --  PED NACH SERVICE / ABBRUCH FREIGEBEN
 --  Entsperrt KI, lässt den Ped aussteigen, lässt ihn wandern
 --  und löscht ihn nach 15 s.
@@ -730,19 +743,29 @@ local function startRecruit()
             setState('IDLE'); activePed = nil; return
         end
         if GetGameTimer() - t0 > 15000 then
+            -- Fallback: Ped per Teleport in den Sitz setzen.
+            -- Erst alle Tasks löschen, damit kein laufender Task den Sitz blockiert.
+            ClearPedTasksImmediately(activePed)
             SetPedIntoVehicle(activePed, veh, 0)
-            Wait(500)
+            lockPedInSeat(activePed)
+            Wait(1500)
             break
         end
     end
 
-    -- Stabilisierungspause: GTA braucht einen Moment um den Sitz zu bestätigen
+    -- Sofort nach Einsteigen sperren, bevor die Stabilisierungspause läuft.
+    -- Ohne diese Sperre gibt GTAs Ambient-KI dem Ped nach dem Ende von
+    -- TaskEnterVehicle sofort einen neuen Task (→ aussteigen).
+    lockPedInSeat(activePed)
     Wait(ENTRY_STABILIZE_MS)
 
     if not DoesEntityExist(activePed) or not IsPedInVehicle(activePed, veh, false) then
         cleanupEscort('~r~Sie hat das Fahrzeug sofort wieder verlassen.')
         return
     end
+    -- Sperre nach der Pause erneut setzen – GTA versucht sie manchmal verzögert
+    -- zu überschreiben.
+    lockPedInSeat(activePed)
 
     notify('~g~Sie ist drin.~s~ Fahr zu einer ~y~abgelegenen Stelle~s~.')
     hookerSay(activePed, 'enter')
@@ -810,18 +833,22 @@ local function startFollowRecruit()
                         return
                     end
                     if GetGameTimer() - t1 > 15000 then
+                        ClearPedTasksImmediately(activePed)
                         SetPedIntoVehicle(activePed, veh, 0)
-                        Wait(500)
+                        lockPedInSeat(activePed)
+                        Wait(1500)
                         break
                     end
                 end
 
+                lockPedInSeat(activePed)
                 Wait(ENTRY_STABILIZE_MS)
 
                 if not DoesEntityExist(activePed) or not IsPedInVehicle(activePed, veh, false) then
                     cleanupEscort('~r~Sie hat das Fahrzeug sofort wieder verlassen.')
                     return
                 end
+                lockPedInSeat(activePed)
 
                 notify('~g~Sie ist drin.~s~ Fahr zu einer ~y~abgelegenen Stelle~s~.')
                 hookerSay(activePed, 'ride')
@@ -853,6 +880,10 @@ local function watchRiding()
         cleanupEscort('~r~Sie hat das Fahrzeug verlassen.')
         return
     end
+
+    -- Sitz-Sperre jeden Frame auffrischen: GTAs Ambient-KI versucht
+    -- periodisch, den Ped wieder zu übernehmen. Das verhindern wir hier.
+    lockPedInSeat(activePed)
 
     if not isServiceTime() then
         helpText('Zu dieser Uhrzeit läuft nichts. Komm im Zeitfenster wieder.', false)
@@ -963,16 +994,17 @@ function runService(svc)
 
     -- Ped vollständig sperren: KI darf während des gesamten Services
     -- keine neuen Tasks (z.B. Fahrzeug verlassen) zuweisen.
-    SetBlockingOfNonTemporaryEvents(activePed, true)
-    SetPedKeepTask(activePed, true)
+    lockPedInSeat(activePed)
     SetPedIntoVehicle(activePed, veh, 0)
 
     local function stabilize()
-        if DoesEntityExist(veh) and activePed and DoesEntityExist(activePed)
-            and not IsPedInVehicle(activePed, veh, false)
-        then
+        if not DoesEntityExist(veh) or not activePed or not DoesEntityExist(activePed) then return end
+        if not IsPedInVehicle(activePed, veh, false) then
             SetPedIntoVehicle(activePed, veh, 0)
         end
+        -- Sperre nach jeder Animation-Phase erneut setzen, damit der Ped
+        -- während der Enter/Loop/Exit-Sequenz nie aussteigt.
+        lockPedInSeat(activePed)
     end
 
     SendNUIMessage({ action = 'progress', duration = realDuration, label = svc.label })
@@ -1211,8 +1243,13 @@ CreateThread(function()
         local sleep = 500
         if state == 'RECRUITED' then
             startRecruit()
+            -- Direkt nach dem Einsteigen den RIDING-Watchdog ohne Verzögerung
+            -- starten, damit kein 500 ms-Gap entsteht, in dem die Dame
+            -- unbemerkt aussteigen könnte.
+            sleep = 0
         elseif state == 'RECRUITED_FOOT' then
             startFollowRecruit()
+            sleep = 0
         elseif state == 'RIDING' then
             sleep = 0
             watchRiding()
