@@ -38,6 +38,19 @@ exports('UnregisterHooker', function(ped)
     if ped then externalPeds[ped] = nil end
 end)
 
+-- LocalEvent-Alternative: npc-system (oder andere Scripts) können Peds auch per TriggerEvent melden.
+-- Aufruf: TriggerEvent('mtj_prostitution:registerExternalPed', pedHandle)
+--         TriggerEvent('mtj_prostitution:unregisterExternalPed', pedHandle)
+AddEventHandler('mtj_prostitution:registerExternalPed', function(ped)
+    if ped and ped ~= 0 and DoesEntityExist(ped) then
+        externalPeds[ped] = true
+        dbg('Ped per LocalEvent registriert:', ped)
+    end
+end)
+AddEventHandler('mtj_prostitution:unregisterExternalPed', function(ped)
+    if ped then externalPeds[ped] = nil end
+end)
+
 -- ════════════════════════════════════════════════════════════════
 --  DIALOG-SYSTEM (GTA-Online-Style Sprache + Untertitel)
 -- ════════════════════════════════════════════════════════════════
@@ -462,23 +475,26 @@ CreateThread(function()
                     end
                 end
 
-                -- Fallback: nicht registrierte Hooker-Peds in der Nähe direkt erkennen (zu Fuß)
-                if not nearest then
-                    local me = PlayerPedId()
-                    local scanRadius = getRecruitDistanceOnFoot() + 5.0
+                -- Spiel-Pool direkt scannen wenn kein Ped in Reichweite – läuft jedes Mal, nicht nur
+                -- wenn nearest == nil, damit weit entfernte Peds aus spawnedPeds nicht blockieren.
+                -- Erkennt Peds von externen Scripten (z.B. npc-system) auch ohne vorherige Registrierung.
+                local recruitRange = getRecruitDistanceOnFoot()
+                if not nearest or nearDist >= recruitRange then
                     for _, ped in ipairs(GetGamePool('CPed')) do
-                        if ped ~= me
+                        if ped ~= player
                             and ped ~= activePed
                             and DoesEntityExist(ped)
                             and not IsPedDeadOrDying(ped, true)
                             and not IsPedAPlayer(ped)
                             and hookerModelHashes[GetEntityModel(ped)]
                         then
-                            local pc = GetEntityCoords(ped)
-                            local d = #(vector2(pp.x, pp.y) - vector2(pc.x, pc.y))
-                            if d < nearDist and d < scanRadius then
+                            local pedPos = GetEntityCoords(ped)
+                            local d = #(vector2(pp.x, pp.y) - vector2(pedPos.x, pedPos.y))
+                            if d < nearDist then
                                 nearDist, nearest, nearIdx, nearIsExternal = d, ped, nil, true
-                                externalPeds[ped] = true
+                                if d < recruitRange then
+                                    externalPeds[ped] = true  -- fuer naechste Runde vormerken
+                                end
                             end
                         end
                     end
