@@ -21,6 +21,8 @@ local SERVICE_FAILSAFE_BUFFER_MS = 30000
 local stateChangedAt = GetGameTimer()
 local serviceFailSafeUntil = 0
 local serviceAbortRequested = false
+local activeCam = nil          -- Cinematic-Kamera während Service (Modul-Level für Cleanup)
+local serviceRocking = false   -- Fahrzeug-Rütteln-Flag (Modul-Level für Cleanup)
 local SERVICE_PLAYER_ANIMS = {
     'proposition_to_BJ_p1_male',
     'proposition_to_BJ_p2_male',
@@ -253,9 +255,22 @@ end
 
 local function releasePlayerLocks(forceClearTasks)
     local player = PlayerPedId()
+    -- Fahrzeugrütteln sofort stoppen
+    serviceRocking = false
+    -- Cinematic-Kamera zerstören, falls noch aktiv
+    if activeCam then
+        RenderScriptCams(false, false, 0, true, true)
+        DestroyCam(activeCam, true)
+        activeCam = nil
+    else
+        RenderScriptCams(false, false, 0, true, true)
+    end
+    -- Schwarzblende aufheben, falls der Bildschirm noch ausgeblendet ist
+    if IsScreenFadedOut() then
+        DoScreenFadeIn(0)
+    end
     SetNuiFocus(false, false)
     SendNUIMessage({ action = 'hide' })
-    RenderScriptCams(false, false, 0, true, true)
     EnableAllControlActions(0)
     SetPlayerControl(PlayerId(), true, 0)
     FreezeEntityPosition(player, false)
@@ -882,17 +897,17 @@ function runService(svc)
         SetVehicleLights(veh, 1)
 
         -- ── GTA-Style Kamera: schräg von hinten/oben über den Ped ──
-        local cam = nil
+        activeCam = nil
         local camCfg = (Config.Cam and Config.Cam[scene]) or {
             pos = { x = -0.12, y = 0.10, z = 0.56 }, lookAt = { x = 0.32, y = 0.10, z = 0.42 }, fov = 46.0
         }
         local function placeCam()
-            if not cam then return end
+            if not activeCam then return end
             local p, l = camCfg.pos, camCfg.lookAt
             local camPos = GetOffsetFromEntityInWorldCoords(veh, p.x, p.y, p.z)
             local lookAt = GetOffsetFromEntityInWorldCoords(veh, l.x, l.y, l.z)
-            SetCamCoord(cam, camPos.x, camPos.y, camPos.z)
-            PointCamAtCoord(cam, lookAt.x, lookAt.y, lookAt.z)
+            SetCamCoord(activeCam, camPos.x, camPos.y, camPos.z)
+            PointCamAtCoord(activeCam, lookAt.x, lookAt.y, lookAt.z)
         end
 
         -- Spielt eine einmalige Übergangs-Animation (Enter/Exit) mit Steuerungs-
@@ -913,18 +928,18 @@ function runService(svc)
                     DisableControlAction(0, 59, true)
                     DisableControlAction(0, 75, true)
                 end
-                if cam then placeCam() end
+                if activeCam then placeCam() end
                 Wait(0)
             end
             return true
         end
         if Config.UseCinematicCam ~= false then
-            cam = CreateCam('DEFAULT_SCRIPTED_CAMERA', true)
+            activeCam = CreateCam('DEFAULT_SCRIPTED_CAMERA', true)
             placeCam()
-            SetCamFov(cam, camCfg.fov or 46.0)
-            SetCamActive(cam, true)
+            SetCamFov(activeCam, camCfg.fov or 46.0)
+            SetCamActive(activeCam, true)
             RenderScriptCams(true, true, 600, true, true)
-            ShakeCam(cam, 'HAND_SHAKE', 0.12) -- dezentes Wackeln
+            ShakeCam(activeCam, 'HAND_SHAKE', 0.12) -- dezentes Wackeln
         end
 
         -- ── Enter-Animationen (GTA-Stil: Übergang in die Service-Position) ──
@@ -935,10 +950,10 @@ function runService(svc)
         pair(A.lh, A.lp, 1, false)
 
         -- ── Auto wackeln (nur Sex) ──
-        local rocking = (scene == 'sex')
-        if rocking and Config.RockVehicle then
+        serviceRocking = (scene == 'sex')
+        if serviceRocking and Config.RockVehicle then
             CreateThread(function()
-                while rocking do
+                while serviceRocking do
                     ApplyForceToEntity(veh, 1, 0.0, 0.0, -0.5, 0.0, 0.0, 0.0, 0, true, true, true, true, false)
                     Wait(780)
                 end
@@ -977,11 +992,11 @@ function runService(svc)
                     DisableControlAction(0, 59, true)
                     DisableControlAction(0, 75, true)
                 end
-                if cam then placeCam() end
+                if activeCam then placeCam() end
                 Wait(0)
             end
         end
-        rocking = false
+        serviceRocking = false
 
         -- KeepTask lösen, damit die Exit-Animationen korrekt abspielen können
         SetPedKeepTask(player, false)
@@ -1002,11 +1017,11 @@ function runService(svc)
         end
 
         -- Kamera freigeben -> zurück zur normalen Gameplay-Kamera
-        if cam then
+        if activeCam then
             RenderScriptCams(false, true, 600, true, true)
             Wait(350)
-            DestroyCam(cam, true)
-            cam = nil
+            DestroyCam(activeCam, true)
+            activeCam = nil
         end
 
         -- Steuerung wieder komplett freigeben
