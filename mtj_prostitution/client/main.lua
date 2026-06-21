@@ -681,12 +681,20 @@ function runService(svc)
         SetBlockingOfNonTemporaryEvents(activePed, false)
         local v = GetVehiclePedIsIn(activePed, false)
         TaskLeaveVehicle(activePed, v, 0)
-        SetPedKeepTask(activePed, true)
-        TaskWanderStandard(activePed, 10.0, 10)
         SetEntityAsNoLongerNeeded(activePed)
         local toDelete = activePed
-        SetTimeout(15000, function()
-            if DoesEntityExist(toDelete) then DeleteEntity(toDelete) end
+        -- Warten bis die Ausstieg-Animation fertig ist, erst dann wandern
+        CreateThread(function()
+            local t0 = GetGameTimer()
+            while DoesEntityExist(toDelete) and IsPedInVehicle(toDelete, v, false) and GetGameTimer() - t0 < 6000 do
+                Wait(200)
+            end
+            if DoesEntityExist(toDelete) then
+                TaskWanderStandard(toDelete, 10.0, 10)
+            end
+            SetTimeout(15000, function()
+                if DoesEntityExist(toDelete) then DeleteEntity(toDelete) end
+            end)
         end)
     end
 
@@ -708,11 +716,21 @@ function cleanupEscort(msg)
         SetBlockingOfNonTemporaryEvents(activePed, false)
         local veh = GetVehiclePedIsIn(activePed, false)
         if veh ~= 0 then TaskLeaveVehicle(activePed, veh, 0) end
-        TaskWanderStandard(activePed, 10.0, 10)
         SetEntityAsNoLongerNeeded(activePed)
         local toDelete = activePed
-        SetTimeout(15000, function()
-            if DoesEntityExist(toDelete) then DeleteEntity(toDelete) end
+        local leaveVeh = veh
+        -- Warten bis die Ausstieg-Animation fertig ist, erst dann wandern
+        CreateThread(function()
+            local t0 = GetGameTimer()
+            while DoesEntityExist(toDelete) and leaveVeh ~= 0 and IsPedInVehicle(toDelete, leaveVeh, false) and GetGameTimer() - t0 < 6000 do
+                Wait(200)
+            end
+            if DoesEntityExist(toDelete) then
+                TaskWanderStandard(toDelete, 10.0, 10)
+            end
+            SetTimeout(15000, function()
+                if DoesEntityExist(toDelete) then DeleteEntity(toDelete) end
+            end)
         end)
     end
     SetNuiFocus(false, false)
