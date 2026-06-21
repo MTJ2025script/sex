@@ -18,11 +18,13 @@ local MENU_FAILSAFE_MS = 45000
 local RECRUIT_FAILSAFE_MS = 20000
 local FOLLOW_FAILSAFE_BUFFER_MS = 15000
 local SERVICE_FAILSAFE_BUFFER_MS = 30000
+local POST_SERVICE_WATCHDOG_MS = 8000
 local stateChangedAt = GetGameTimer()
 local serviceFailSafeUntil = 0
 local serviceAbortRequested = false
 local activeCam = nil          -- Cinematic-Kamera während Service (Modul-Level für Cleanup)
 local serviceRocking = false   -- Fahrzeug-Rütteln-Flag (Modul-Level für Cleanup)
+local postServiceWatchdogToken = 0
 local SERVICE_PLAYER_ANIMS = {
     'proposition_to_BJ_p1_male',
     'proposition_to_BJ_p2_male',
@@ -284,6 +286,68 @@ end
 
 local function shouldAbortService()
     return serviceAbortRequested or state ~= 'SERVICE'
+end
+
+local function stopPostServiceWatchdog()
+    postServiceWatchdogToken = postServiceWatchdogToken + 1
+end
+
+local function startPostServiceWatchdog(veh, ped, reason)
+    stopPostServiceWatchdog()
+
+    local token = postServiceWatchdogToken
+    local trackedVeh = (veh and veh ~= 0 and DoesEntityExist(veh)) and veh or 0
+    local trackedPed = (ped and ped ~= 0 and DoesEntityExist(ped)) and ped or 0
+
+    CreateThread(function()
+        dbg('[WATCHDOG] Start post-service watchdog:', reason or 'n/a', 'veh=', trackedVeh, 'ped=', trackedPed)
+
+        local deadline = GetGameTimer() + POST_SERVICE_WATCHDOG_MS
+        while postServiceWatchdogToken == token and GetGameTimer() < deadline do
+            local player = PlayerPedId()
+            local playerBusy = isPlayerInServiceAnimation(player) or activeCam ~= nil or IsScreenFadedOut()
+
+            releasePlayerLocks(playerBusy)
+
+            if trackedVeh ~= 0 then
+                if DoesEntityExist(trackedVeh) then
+                    SetVehicleLights(trackedVeh, 0)
+                else
+                    trackedVeh = 0
+                end
+            end
+
+            if trackedPed ~= 0 then
+                if DoesEntityExist(trackedPed) and not IsPedDeadOrDying(trackedPed, true) then
+                    SetPedConfigFlag(trackedPed, 26, false)
+                    SetBlockingOfNonTemporaryEvents(trackedPed, false)
+                    if trackedVeh ~= 0 and IsPedInVehicle(trackedPed, trackedVeh, false) then
+                        TaskLeaveVehicle(trackedPed, trackedVeh, 0)
+                    end
+                else
+                    trackedPed = 0
+                end
+            end
+
+            local pedReleased = trackedPed == 0
+                or trackedVeh == 0
+                or (DoesEntityExist(trackedPed) and trackedVeh ~= 0 and not IsPedInVehicle(trackedPed, trackedVeh, false))
+
+            if not playerBusy and pedReleased then
+                break
+            end
+
+            Wait(250)
+        end
+
+        if postServiceWatchdogToken == token then
+            releasePlayerLocks(true)
+            if trackedVeh ~= 0 and DoesEntityExist(trackedVeh) then
+                SetVehicleLights(trackedVeh, 0)
+            end
+            dbg('[WATCHDOG] Stop post-service watchdog:', reason or 'n/a')
+        end
+    end)
 end
 
 local function isNight()
@@ -833,6 +897,7 @@ end)
 --  SERVICE (Fade + Fortschritt, dezent / Fade-to-Black)
 -- ════════════════════════════════════════════════════════════════
 function runService(svc)
+    stopPostServiceWatchdog()
     setState('SERVICE')
     serviceAbortRequested = false
     if spotBlip then RemoveBlip(spotBlip); spotBlip = nil end
@@ -1050,6 +1115,7 @@ function runService(svc)
     releasePlayerLocks(false)   -- Anims bereits über StopAnimTask+ClearPedSecondaryTask beendet; kein Force-Clear nötig
     if Config.RestoreHealth then SetEntityHealth(player, GetEntityMaxHealth(player)) end
     if Config.RestoreArmor then SetPedArmour(player, 100) end
+    startPostServiceWatchdog(veh, activePed, 'service-end')
 
     -- Hure steigt aus und geht
     if DoesEntityExist(activePed) then
@@ -1106,20 +1172,23 @@ end
 --  AUFRÄUMEN
 -- ════════════════════════════════════════════════════════════════
 function cleanupEscort(msg)
+    local wasService = (state == 'SERVICE')
+    local cleanupPed = activePed
     serviceAbortRequested = true
     serviceFailSafeUntil = 0
     stopRideTalk()
     if msg then notify(msg) end
     if spotBlip then RemoveBlip(spotBlip); spotBlip = nil end
+    local cleanupVeh = 0
     if activePed and DoesEntityExist(activePed) then
         SetBlockingOfNonTemporaryEvents(activePed, false)
-        local veh = GetVehiclePedIsIn(activePed, false)
+        cleanupVeh = GetVehiclePedIsIn(activePed, false)
         local pedDead = IsPedDeadOrDying(activePed, true)
-        dbg('[CLEANUP] cleanupEscort: ped=', activePed, 'veh=', veh, 'dead=', pedDead, 'msg=', msg)
-        if veh ~= 0 and not pedDead then TaskLeaveVehicle(activePed, veh, 0) end
+        dbg('[CLEANUP] cleanupEscort: ped=', activePed, 'veh=', cleanupVeh, 'dead=', pedDead, 'msg=', msg)
+        if cleanupVeh ~= 0 and not pedDead then TaskLeaveVehicle(activePed, cleanupVeh, 0) end
         SetEntityAsNoLongerNeeded(activePed)
         local toDelete = activePed
-        local leaveVeh = veh
+        local leaveVeh = cleanupVeh
         -- Warten bis die Ausstieg-Animation fertig ist, erst dann wandern
         CreateThread(function()
             dbg('[CLEANUP] Warte auf Fahrzeug-Ausstieg: ped=', toDelete, 'veh=', leaveVeh)
@@ -1147,6 +1216,11 @@ function cleanupEscort(msg)
         end)
     end
     releasePlayerLocks(state == 'SERVICE')
+    if wasService or isPlayerInServiceAnimation(PlayerPedId()) then
+        startPostServiceWatchdog(cleanupVeh, cleanupPed, 'cleanup')
+    else
+        stopPostServiceWatchdog()
+    end
     activePed = nil
     targetSpot = nil
     setState('IDLE')
@@ -1224,6 +1298,7 @@ end)
 -- Sicheres Aufräumen beim Resource-Stop
 AddEventHandler('onResourceStop', function(res)
     if res ~= GetCurrentResourceName() then return end
+    stopPostServiceWatchdog()
     serviceAbortRequested = true
     serviceFailSafeUntil = 0
     clearPeds()
