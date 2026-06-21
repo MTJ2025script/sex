@@ -18,13 +18,14 @@ local MENU_FAILSAFE_MS = 45000
 local RECRUIT_FAILSAFE_MS = 20000
 local FOLLOW_FAILSAFE_BUFFER_MS = 15000
 local SERVICE_FAILSAFE_BUFFER_MS = 30000
-local POST_SERVICE_WATCHDOG_MS = 8000
+local DEFAULT_POST_SERVICE_WATCHDOG_MS = 8000
 local stateChangedAt = GetGameTimer()
 local serviceFailSafeUntil = 0
 local serviceAbortRequested = false
 local activeCam = nil          -- Cinematic-Kamera während Service (Modul-Level für Cleanup)
 local serviceRocking = false   -- Fahrzeug-Rütteln-Flag (Modul-Level für Cleanup)
 local postServiceWatchdogToken = 0
+local postServiceRecoveryUntil = 0
 local SERVICE_PLAYER_ANIMS = {
     'proposition_to_BJ_p1_male',
     'proposition_to_BJ_p2_male',
@@ -288,8 +289,17 @@ local function shouldAbortService()
     return serviceAbortRequested or state ~= 'SERVICE'
 end
 
+local function getPostServiceWatchdogMs()
+    return math.max(tonumber(Config.PostServiceWatchdogMs) or DEFAULT_POST_SERVICE_WATCHDOG_MS, 1000)
+end
+
+local function isPlayerBusyWithService(player)
+    return isPlayerInServiceAnimation(player) or activeCam ~= nil or IsScreenFadedOut()
+end
+
 local function stopPostServiceWatchdog()
     postServiceWatchdogToken = postServiceWatchdogToken + 1
+    postServiceRecoveryUntil = 0
 end
 
 local function startPostServiceWatchdog(veh, ped, reason)
@@ -302,10 +312,11 @@ local function startPostServiceWatchdog(veh, ped, reason)
     CreateThread(function()
         dbg('[WATCHDOG] Start post-service watchdog:', reason or 'n/a', 'veh=', trackedVeh, 'ped=', trackedPed)
 
-        local deadline = GetGameTimer() + POST_SERVICE_WATCHDOG_MS
+        local deadline = GetGameTimer() + getPostServiceWatchdogMs()
+        postServiceRecoveryUntil = deadline
         while postServiceWatchdogToken == token and GetGameTimer() < deadline do
             local player = PlayerPedId()
-            local playerBusy = isPlayerInServiceAnimation(player) or activeCam ~= nil or IsScreenFadedOut()
+            local playerBusy = isPlayerBusyWithService(player)
 
             releasePlayerLocks(playerBusy)
 
@@ -329,9 +340,13 @@ local function startPostServiceWatchdog(veh, ped, reason)
                 end
             end
 
-            local pedReleased = trackedPed == 0
-                or trackedVeh == 0
-                or (DoesEntityExist(trackedPed) and trackedVeh ~= 0 and not IsPedInVehicle(trackedPed, trackedVeh, false))
+            local pedGone = trackedPed == 0
+            local vehicleGone = trackedVeh == 0
+            local pedLeftVehicle = trackedPed ~= 0
+                and trackedVeh ~= 0
+                and DoesEntityExist(trackedPed)
+                and not IsPedInVehicle(trackedPed, trackedVeh, false)
+            local pedReleased = pedGone or vehicleGone or pedLeftVehicle
 
             if not playerBusy and pedReleased then
                 break
@@ -345,6 +360,7 @@ local function startPostServiceWatchdog(veh, ped, reason)
             if trackedVeh ~= 0 and DoesEntityExist(trackedVeh) then
                 SetVehicleLights(trackedVeh, 0)
             end
+            postServiceRecoveryUntil = 0
             dbg('[WATCHDOG] Stop post-service watchdog:', reason or 'n/a')
         end
     end)
@@ -1245,7 +1261,7 @@ CreateThread(function()
             recoverMsg = '~r~Fallback: Folgen wurde sicher abgebrochen.'
         elseif state == 'SERVICE' and serviceFailSafeUntil > 0 and now > serviceFailSafeUntil then
             recoverMsg = '~r~Fallback: Service wurde sicher beendet.'
-        elseif state == 'IDLE' and isPlayerInServiceAnimation(PlayerPedId()) then
+        elseif state == 'IDLE' and postServiceRecoveryUntil > now and isPlayerInServiceAnimation(PlayerPedId()) then
             recoverMsg = '~r~Fallback: Spielerstatus wurde freigegeben.'
         end
 

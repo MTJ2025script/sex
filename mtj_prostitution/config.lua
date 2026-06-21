@@ -37,6 +37,10 @@ Config.FollowRecruitMaxDistance = 75.0
 -- Fahrer in ein Fahrzeug einsteigst.
 Config.FollowRecruitTimeoutMs = 60000
 
+-- Service-Ende: wie lange der Watchdog danach noch Steuerung/Kamera/Exit
+-- absichert, falls GTA/FiveM Cleanup-Tasks verschluckt.
+Config.PostServiceWatchdogMs = 8000
+
 -- Karten-Blips für die Huren anzeigen (damit du die ECHTEN findest)
 Config.ShowBlips = true
 
