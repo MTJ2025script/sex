@@ -16,6 +16,15 @@ local spotBlip      = nil
 -- Diese Peds werden NICHT von diesem Script gespawnt/gelöscht – nur angeworben.
 local externalPeds  = {}      -- [pedHandle] = true
 
+-- Hash-Set der konfigurierten Ped-Modelle für den Spiel-Pool-Scan.
+-- Wird einmalig befüllt, damit GetHashKey nicht im Hot-Path aufgerufen werden muss.
+local hookerModelHashes = {}
+CreateThread(function()
+    for _, model in ipairs(Config.PedModels) do
+        hookerModelHashes[GetHashKey(model)] = true
+    end
+end)
+
 -- Export: andere Resourcen melden ihre Huren-Peds hier an, damit sie
 -- per Hupe/E angeworben werden können (wie die Script-eigenen Huren).
 exports('RegisterHooker', function(ped)
@@ -306,6 +315,45 @@ CreateThread(function()
             if next(spawnedPeds) and not activePed then clearPeds() end
         end
         Wait(sleep)
+    end
+end)
+
+-- ════════════════════════════════════════════════════════════════
+--  SPIEL-POOL-SCAN: unbekannte Huren-Peds in externalPeds aufnehmen
+--  Läuft im Hintergrund und registriert alle Peds mit einem der konfigurierten
+--  Modelle automatisch, egal ob von GTA ambient oder einem anderen Script.
+-- ════════════════════════════════════════════════════════════════
+CreateThread(function()
+    while true do
+        if isNight() then
+            local me = PlayerPedId()
+            local myPos = GetEntityCoords(me)
+            for _, ped in ipairs(GetGamePool('CPed')) do
+                if ped ~= me
+                    and ped ~= activePed
+                    and DoesEntityExist(ped)
+                    and not IsPedDeadOrDying(ped, true)
+                    and not IsPedAPlayer(ped)
+                    and hookerModelHashes[GetEntityModel(ped)]
+                    and not externalPeds[ped]
+                then
+                    -- Nur Peds in der Nähe registrieren (Scan-Radius = max Erkennungsweite)
+                    local scanRadius = math.max(Config.RecruitDistance or 9.0, Config.RecruitDistanceOnFoot or 5.0) + 5.0
+                    if #(GetEntityCoords(ped) - myPos) < scanRadius then
+                        -- Nicht erneut eintragen wenn bereits in spawnedPeds
+                        local inSpawned = false
+                        for _, sp in pairs(spawnedPeds) do
+                            if sp == ped then inSpawned = true; break end
+                        end
+                        if not inSpawned then
+                            externalPeds[ped] = true
+                            dbg('Ped aus Spiel-Pool registriert:', ped)
+                        end
+                    end
+                end
+            end
+        end
+        Wait(2000)
     end
 end)
 
