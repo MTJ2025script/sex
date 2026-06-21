@@ -196,7 +196,7 @@ end
 local function helpText(msg)
     BeginTextCommandDisplayHelp('STRING')
     AddTextComponentSubstringPlayerName(msg)
-    EndTextCommandDisplayHelp(0, false, true, -1)
+    EndTextCommandDisplayHelp(0, false, false, -1)
 end
 
 local function DrawText3D(x, y, z, text)
@@ -607,8 +607,8 @@ local function startFollowRecruit()
 
     CreateThread(function()
         local t0       = GetGameTimer()
-        local TIMEOUT  = 60000   -- 60 s um ein Fahrzeug zu betreten
-        local MAX_DIST = 30.0    -- Abbruch wenn Spieler zu weit wegläuft
+        local TIMEOUT  = Config.FollowRecruitTimeoutMs or 60000
+        local MAX_DIST = Config.FollowRecruitMaxDistance or 75.0
 
         while state == 'FOLLOWING' do
             local player = PlayerPedId()  -- jedes Mal neu holen (nach Respawn kann sich die ID ändern)
@@ -620,7 +620,7 @@ local function startFollowRecruit()
 
             local playerPos = GetEntityCoords(player)
             local pedPos    = GetEntityCoords(activePed)
-            local dist      = #(playerPos - pedPos)
+            local dist      = #(vector2(playerPos.x, playerPos.y) - vector2(pedPos.x, pedPos.y))
 
             -- Ped zu weit? -> Abbruch
             if dist > MAX_DIST then

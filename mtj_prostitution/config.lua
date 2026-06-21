@@ -29,6 +29,14 @@ Config.RecruitDistance = 9.0
 -- Reichweite, in der eine Hure zu Fuß angesprochen werden kann (2D-Distanz, wie beim Auto)
 Config.RecruitDistanceOnFoot = 9.0
 
+-- Folgephase zu Fuß: so weit darf die Begleitung maximal zurückfallen,
+-- bevor der Vorgang abbricht.
+Config.FollowRecruitMaxDistance = 75.0
+
+-- Folgephase zu Fuß: so lange wartet die Begleitung darauf, dass du als
+-- Fahrer in ein Fahrzeug einsteigst.
+Config.FollowRecruitTimeoutMs = 60000
+
 -- Karten-Blips für die Huren anzeigen (damit du die ECHTEN findest)
 Config.ShowBlips = true
 
