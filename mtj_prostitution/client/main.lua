@@ -58,6 +58,7 @@ end)
 -- GTA-Ped-Speech pro Phase (native Stimmen, funktionieren auf Hooker-Models)
 local SPEECH = {
     approach  = { 'HOOKER_OFFER', 'CHAT_STATE', 'GENERIC_HI' },
+    approachFoot = { 'HOOKER_OFFER', 'CHAT_STATE', 'GENERIC_HI' },
     enter     = { 'HOOKER_ACCEPT', 'GENERIC_HI', 'CHAT_STATE' },
     ride      = { 'CHAT_STATE', 'CHAT_STATE', 'CHAT_STATE' },
     pleased   = { 'HOOKER_PLEASED', 'GENERIC_BYE', 'CHAT_STATE' },
@@ -72,6 +73,14 @@ local DIALOGUE = {
         'Hey... du siehst einsam aus.',
         'Lust auf was Besonderes heute Nacht?',
         'Hübsches Auto... willst du Gesellschaft?',
+    },
+    approachFoot = {
+        'Hey Süßer, suchst du Gesellschaft?',
+        'Na, gehst du hier alleine spazieren?',
+        'Willst du eine gute Zeit haben?',
+        'Hey... du siehst einsam aus.',
+        'Lust auf was Besonderes heute Nacht?',
+        'Na, hast du kurz Zeit für mich?',
     },
     enter = {
         'Na dann lass uns fahren...',
@@ -432,7 +441,7 @@ CreateThread(function()
                     -- Approach-Speech: sie ruft dem Spieler zu (alle 8s, nicht spammen)
                     if not lastApproachCall or GetGameTimer() - lastApproachCall > 8000 then
                         lastApproachCall = GetGameTimer()
-                        hookerSay(nearest, 'approach')
+                        hookerSay(nearest, 'approachFoot')
                     end
                     if Config.NoRecruitWhenWanted and GetPlayerWantedLevel(PlayerId()) > 0 then
                         -- Sie steigt nicht ein solange du gesucht wirst (GTA-Style)
