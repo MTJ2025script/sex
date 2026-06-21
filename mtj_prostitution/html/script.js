@@ -4,11 +4,15 @@ const progress = document.getElementById('progress');
 const progFill = document.getElementById('prog-fill');
 const progLbl  = document.getElementById('prog-label');
 const condensation = document.getElementById('condensation');
-const condFog = document.getElementById('cond-fog');
-const condDrops = document.getElementById('cond-drops');
 
 let progTimer = null;
 let condRaf = null;
+const MIN_PROGRESS_DURATION_SECONDS = 0.1;
+const FOG_GROWTH_EXPONENT = 1.35;
+const DROP_START_THRESHOLD = 0.45;
+const BASE_FOG_OPACITY = 0.06;
+const MAX_FOG_OPACITY_GAIN = 0.56;
+const MAX_DROP_OPACITY = 0.72;
 
 function post(name, data = {}) {
     fetch(`https://${GetParentResourceName()}/${name}`, {
@@ -44,24 +48,24 @@ function renderMenu(list) {
 }
 
 function startProgress(duration, label) {
-    const safeDuration = Math.max(Number(duration) || 0, 0.1);
+    const safeDuration = Math.max(Number(duration) || 0, MIN_PROGRESS_DURATION_SECONDS);
     progLbl.textContent = (label || 'SERVICE').toUpperCase();
     progFill.style.transition = 'none';
     progFill.style.width = '0%';
     progress.classList.remove('hidden');
     condensation.classList.remove('hidden');
-    condFog.style.opacity = '0';
-    condDrops.style.opacity = '0';
+    condensation.style.setProperty('--cond-fog-opacity', '0');
+    condensation.style.setProperty('--cond-drop-opacity', '0');
     if (condRaf) cancelAnimationFrame(condRaf);
 
     const startAt = performance.now();
     const totalMs = safeDuration * 1000;
     const step = (now) => {
         const p = Math.min((now - startAt) / totalMs, 1);
-        const fogIntensity = Math.pow(p, 1.35);
-        const dropRamp = Math.max((p - 0.45) / 0.55, 0);
-        condFog.style.opacity = (0.06 + fogIntensity * 0.56).toFixed(3);
-        condDrops.style.opacity = (dropRamp * 0.72).toFixed(3);
+        const fogIntensity = Math.pow(p, FOG_GROWTH_EXPONENT);
+        const dropRamp = Math.max((p - DROP_START_THRESHOLD) / (1 - DROP_START_THRESHOLD), 0);
+        condensation.style.setProperty('--cond-fog-opacity', (BASE_FOG_OPACITY + fogIntensity * MAX_FOG_OPACITY_GAIN).toFixed(3));
+        condensation.style.setProperty('--cond-drop-opacity', (dropRamp * MAX_DROP_OPACITY).toFixed(3));
         if (p < 1) condRaf = requestAnimationFrame(step);
     };
     condRaf = requestAnimationFrame(step);
@@ -76,8 +80,8 @@ function hideAll() {
     menu.classList.add('hidden');
     progress.classList.add('hidden');
     condensation.classList.add('hidden');
-    condFog.style.opacity = '0';
-    condDrops.style.opacity = '0';
+    condensation.style.setProperty('--cond-fog-opacity', '0');
+    condensation.style.setProperty('--cond-drop-opacity', '0');
     if (condRaf) { cancelAnimationFrame(condRaf); condRaf = null; }
     if (progTimer) { clearTimeout(progTimer); progTimer = null; }
 }

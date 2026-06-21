@@ -243,11 +243,11 @@ html, body { width: 100%; height: 100%; background: transparent; overflow: hidde
 #cond-fog, #cond-drops {
     position: absolute;
     inset: 0;
-    opacity: 0;
     transition: opacity .25s linear;
 }
 
 #cond-fog {
+    opacity: var(--cond-fog-opacity, 0);
     background:
         radial-gradient(circle at 16% 22%, rgba(255,255,255,.40), rgba(255,255,255,0) 28%),
         radial-gradient(circle at 82% 30%, rgba(255,255,255,.25), rgba(255,255,255,0) 35%),
@@ -257,6 +257,7 @@ html, body { width: 100%; height: 100%; background: transparent; overflow: hidde
 }
 
 #cond-drops {
+    opacity: var(--cond-drop-opacity, 0);
     background:
         radial-gradient(12px 18px at 12% 20%, rgba(255,255,255,.55) 8%, rgba(255,255,255,.22) 36%, rgba(255,255,255,0) 70%),
         radial-gradient(10px 15px at 24% 58%, rgba(255,255,255,.50) 8%, rgba(255,255,255,.20) 36%, rgba(255,255,255,0) 70%),
