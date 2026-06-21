@@ -1015,7 +1015,7 @@ function runService(svc)
         ClearPedSecondaryTask(player)   -- nur Anim-Task; ClearPedTasks würde den Vehicle-Task stören und das Auto einfrieren
         if DoesEntityExist(activePed) then
             StopAnimTask(activePed, DICT, A.x2h, 4.0)
-            ClearPedTasksImmediately(activePed)
+            ClearPedSecondaryTask(activePed)
         end
 
         -- Kamera freigeben -> zurück zur normalen Gameplay-Kamera
@@ -1056,6 +1056,10 @@ function runService(svc)
         SetPedConfigFlag(activePed, 26, false)
         SetBlockingOfNonTemporaryEvents(activePed, false)
         local v = GetVehiclePedIsIn(activePed, false)
+        if v == 0 and DoesEntityExist(veh) then
+            v = veh
+            dbg('[EXIT] Fallback auf Service-Fahrzeug:', v)
+        end
         local pedDead = IsPedDeadOrDying(activePed, true)
         dbg('[EXIT] Service-Ende: ped=', activePed, 'veh=', v, 'dead=', pedDead)
         if v ~= 0 and not pedDead then TaskLeaveVehicle(activePed, v, 0) end
