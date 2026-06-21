@@ -193,10 +193,10 @@ local function notify(msg)
 end
 
 -- GTA-Style Hilfetext oben links (mit Button-Glyphen wie ~INPUT_VEH_HORN~)
-local function helpText(msg)
+local function helpText(msg, beep)
     BeginTextCommandDisplayHelp('STRING')
     AddTextComponentSubstringPlayerName(msg)
-    EndTextCommandDisplayHelp(0, false, false, -1)
+    EndTextCommandDisplayHelp(0, false, beep == true, -1)
 end
 
 local function DrawText3D(x, y, z, text)
@@ -445,9 +445,9 @@ CreateThread(function()
                     end
                     if Config.NoRecruitWhenWanted and GetPlayerWantedLevel(PlayerId()) > 0 then
                         -- Sie steigt nicht ein solange du gesucht wirst (GTA-Style)
-                        helpText('Sie steigt nicht ein, solange die ~r~Cops~s~ hinter dir her sind.')
+                        helpText('Sie steigt nicht ein, solange die ~r~Cops~s~ hinter dir her sind.', false)
                     else
-                        helpText('Drücke ~INPUT_VEH_HORN~ oder ~INPUT_PICKUP~ um die Begleitung anzuwerben')
+                        helpText('Drücke ~INPUT_VEH_HORN~ oder ~INPUT_PICKUP~ um die Begleitung anzuwerben', false)
                         DrawText3D(pc.x, pc.y, pc.z + 1.0, '~y~Begleitung~w~')
                         -- Hupe (86) ODER E (38) ODER konfigurierte Taste
                         if IsControlJustPressed(0, Config.HornControl)
@@ -527,9 +527,9 @@ CreateThread(function()
                         hookerSay(nearest, 'approachFoot')
                     end
                     if Config.NoRecruitWhenWanted and GetPlayerWantedLevel(PlayerId()) > 0 then
-                        helpText('Sie kommt nicht mit, solange die ~r~Cops~s~ hinter dir her sind.')
+                        helpText('Sie kommt nicht mit, solange die ~r~Cops~s~ hinter dir her sind.', false)
                     else
-                        helpText('Drücke ~INPUT_PICKUP~ um die Begleitung anzusprechen')
+                        helpText('Drücke ~INPUT_PICKUP~ um die Begleitung anzusprechen', false)
                         DrawText3D(pc.x, pc.y, pc.z + 1.0, '~y~Begleitung~w~')
                         if IsControlJustPressed(0, 38) then  -- E
                             dbg('Nutte zu Fuß angeworben, Distanz:', math.floor(nearDist))
@@ -638,7 +638,7 @@ local function startFollowRecruit()
             TaskFollowToOffsetOfEntity(activePed, player, 0.0, -1.0, 0.0, 1.5, -1, 0.5, true)
 
             -- Hinweistext
-            helpText('Geh zu deinem ~y~Fahrzeug~s~. Sie folgt dir. (~r~' .. math.ceil((TIMEOUT - (GetGameTimer() - t0)) / 1000) .. 's~s~)')
+            helpText('Geh zu deinem ~y~Fahrzeug~s~. Sie folgt dir. (~r~' .. math.ceil((TIMEOUT - (GetGameTimer() - t0)) / 1000) .. 's~s~)', false)
 
             -- Hat der Spieler ein Fahrzeug betreten (als Fahrer)?
             local veh = getDriverVehicle()
@@ -697,7 +697,7 @@ local function watchRiding()
 
     -- Zeitfenster abgelaufen? -> Hinweis, kein Start möglich
     if not isServiceTime() then
-        helpText('Zu dieser Uhrzeit läuft nichts. Komm im Zeitfenster wieder.')
+        helpText('Zu dieser Uhrzeit läuft nichts. Komm im Zeitfenster wieder.', false)
         return
     end
 
@@ -713,13 +713,13 @@ local function watchRiding()
 
     if cachedNearby > 0 then
         -- zu viele Leute -> weiterfahren
-        helpText('Hier sind zu viele Leute. Fahr weiter zu einer ~y~abgelegenen Stelle~s~.')
+        helpText('Hier sind zu viele Leute. Fahr weiter zu einer ~y~abgelegenen Stelle~s~.', false)
     elseif speed > Config.MaxStartSpeed then
         -- privat, aber noch in Bewegung -> anhalten
-        helpText('Abgelegene Stelle gefunden. ~g~Halte an~s~, um zu starten.')
+        helpText('Abgelegene Stelle gefunden. ~g~Halte an~s~, um zu starten.', false)
     else
         -- privat + steht -> Service möglich
-        helpText('Drücke ~INPUT_CONTEXT~, um die Begleitung zu fragen')
+        helpText('Drücke ~INPUT_CONTEXT~, um die Begleitung zu fragen', false)
         if IsControlJustPressed(0, 38) then  -- E
             openServiceMenu()
         end
