@@ -984,6 +984,7 @@ function runService(svc)
 
     -- Sitzposition während Service stabil halten (verhindert Offsets/"schief sitzen")
     local function stabilizeServiceSeats()
+        if veh == 0 or not DoesEntityExist(veh) then return end
         if DoesEntityExist(activePed) and not IsPedInVehicle(activePed, veh, false) then
             SetPedIntoVehicle(activePed, veh, 0)
         end
