@@ -1,98 +1,83 @@
 local ESX = exports['es_extended']:getSharedObject()
 
 -- ════════════════════════════════════════════════════════════════
---  STATE
+--  ZUSTAND
 -- ════════════════════════════════════════════════════════════════
-local spawnedPeds   = {}      -- [index] = pedHandle
-local pedBlips      = {}      -- [index] = blipHandle
-local activePed     = nil     -- aktuell angeworbene Hure
-local state         = 'IDLE'  -- IDLE | RECRUITED | RECRUITED_FOOT | FOLLOWING | RIDING | MENU | SERVICE | DONE
-local lastService   = 0       -- Cooldown-Timer
-local lastApproachCall = 0    -- Throttle für Approach-Speech
-local targetSpot    = nil     -- vector3 der gewählten ruhigen Ecke
+local spawnedPeds   = {}
+local pedBlips      = {}
+local activePed     = nil
+local state         = 'IDLE'
+local lastService   = 0
+local lastApproachCall = 0
+local targetSpot    = nil
 local spotBlip      = nil
+local externalPeds  = {}
 
-local DEFAULT_RECRUIT_DISTANCE = 9.0
-local SERVICE_ANIM_DICT = 'mini@prostitutes@sexnorm_veh'
-local SERVICE_ANIM_DICT_AF = 'mini@prostitutes@sexnorm_veh_af'
-local SERVICE_ANIM_DICTS = { SERVICE_ANIM_DICT, SERVICE_ANIM_DICT_AF }
-local HOOKER_03_MODEL = `s_f_y_hooker_03`
-local MENU_FAILSAFE_MS = 45000
-local RECRUIT_FAILSAFE_MS = 20000
-local FOLLOW_FAILSAFE_BUFFER_MS = 15000
-local SERVICE_FAILSAFE_BUFFER_MS = 30000
+local DEFAULT_RECRUIT_DISTANCE        = 9.0
+local SERVICE_ANIM_DICT               = 'mini@prostitutes@sexnorm_veh'
+local SERVICE_ANIM_DICT_AF            = 'mini@prostitutes@sexnorm_veh_af'
+local SERVICE_ANIM_DICTS              = { SERVICE_ANIM_DICT, SERVICE_ANIM_DICT_AF }
+local HOOKER_03_MODEL                 = `s_f_y_hooker_03`
+local MENU_FAILSAFE_MS                = 45000
+local RECRUIT_FAILSAFE_MS             = 20000
+local FOLLOW_FAILSAFE_BUFFER_MS       = 15000
+local SERVICE_FAILSAFE_BUFFER_MS      = 30000
 local DEFAULT_POST_SERVICE_WATCHDOG_MS = 8000
-local stateChangedAt = GetGameTimer()
-local serviceFailSafeUntil = 0
-local serviceAbortRequested = false
-local activeCam = nil          -- Cinematic-Kamera während Service (Modul-Level für Cleanup)
-local serviceRocking = false   -- Fahrzeug-Rütteln-Flag (Modul-Level für Cleanup)
+local ENTRY_STABILIZE_MS              = 1200
+
+local stateChangedAt           = GetGameTimer()
+local serviceFailSafeUntil     = 0
+local serviceAbortRequested    = false
+local activeCam                = nil
+local serviceRocking           = false
 local postServiceWatchdogToken = 0
 local postServiceRecoveryUntil = 0
+
 local SERVICE_PLAYER_ANIMS = {
-    'proposition_to_BJ_p1_male',
-    'proposition_to_BJ_p2_male',
+    'proposition_to_BJ_p1_male',  'proposition_to_BJ_p2_male',
     'BJ_loop_male',
-    'BJ_to_proposition_p1_male',
-    'BJ_to_proposition_p2_male',
-    'proposition_to_sex_p1_male',
-    'proposition_to_sex_p2_male',
+    'BJ_to_proposition_p1_male',  'BJ_to_proposition_p2_male',
+    'proposition_to_sex_p1_male', 'proposition_to_sex_p2_male',
     'sex_loop_male',
-    'sex_to_proposition_p1_male',
-    'sex_to_proposition_p2_male',
+    'sex_to_proposition_p1_male', 'sex_to_proposition_p2_male',
 }
 
--- Von externen Resourcen (z.B. npc_dashboard) registrierte Huren.
--- Diese Peds werden NICHT von diesem Script gespawnt/gelöscht – nur angeworben.
-local externalPeds  = {}      -- [pedHandle] = true
-
--- Hash-Set der konfigurierten Ped-Modelle für den Spiel-Pool-Scan.
--- Synchron beim Script-Load befüllt, damit der Pool-Scan vom ersten Frame an korrekt arbeitet.
 local hookerModelHashes = {}
 for _, model in ipairs(Config.PedModels) do
     local hash = (type(model) == 'number') and model or GetHashKey(model)
     hookerModelHashes[hash] = true
 end
 
--- Export: andere Resourcen melden ihre Huren-Peds hier an, damit sie
--- per Hupe/E angeworben werden können (wie die Script-eigenen Huren).
+-- ════════════════════════════════════════════════════════════════
+--  EXTERNE PED-REGISTRIERUNG
+-- ════════════════════════════════════════════════════════════════
 exports('RegisterHooker', function(ped)
-    if ped and ped ~= 0 and DoesEntityExist(ped) then
-        externalPeds[ped] = true
-    end
+    if ped and ped ~= 0 and DoesEntityExist(ped) then externalPeds[ped] = true end
 end)
 
 exports('UnregisterHooker', function(ped)
     if ped then externalPeds[ped] = nil end
 end)
 
--- LocalEvent-Alternative: npc-system (oder andere Scripts) können Peds auch per TriggerEvent melden.
--- Aufruf: TriggerEvent('mtj_prostitution:registerExternalPed', pedHandle)
---         TriggerEvent('mtj_prostitution:unregisterExternalPed', pedHandle)
 AddEventHandler('mtj_prostitution:registerExternalPed', function(ped)
-    if ped and ped ~= 0 and DoesEntityExist(ped) then
-        externalPeds[ped] = true
-        dbg('Ped per LocalEvent registriert:', ped)
-    end
+    if ped and ped ~= 0 and DoesEntityExist(ped) then externalPeds[ped] = true end
 end)
+
 AddEventHandler('mtj_prostitution:unregisterExternalPed', function(ped)
     if ped then externalPeds[ped] = nil end
 end)
 
 -- ════════════════════════════════════════════════════════════════
---  DIALOG-SYSTEM (GTA-Online-Style Sprache + Untertitel)
+--  DIALOG-SYSTEM
 -- ════════════════════════════════════════════════════════════════
-
--- GTA-Ped-Speech pro Phase (native Stimmen, funktionieren auf Hooker-Models)
 local SPEECH = {
-    approach  = { 'HOOKER_OFFER', 'CHAT_STATE', 'GENERIC_HI' },
+    approach     = { 'HOOKER_OFFER', 'CHAT_STATE', 'GENERIC_HI' },
     approachFoot = { 'HOOKER_OFFER', 'CHAT_STATE', 'GENERIC_HI' },
-    enter     = { 'HOOKER_ACCEPT', 'GENERIC_HI', 'CHAT_STATE' },
-    ride      = { 'CHAT_STATE', 'CHAT_STATE', 'CHAT_STATE' },
-    pleased   = { 'HOOKER_PLEASED', 'GENERIC_BYE', 'CHAT_STATE' },
+    enter        = { 'HOOKER_ACCEPT', 'GENERIC_HI', 'CHAT_STATE' },
+    ride         = { 'CHAT_STATE', 'CHAT_STATE', 'CHAT_STATE' },
+    pleased      = { 'HOOKER_PLEASED', 'GENERIC_BYE', 'CHAT_STATE' },
 }
 
--- Untertitel-Texte pro Phase (zufällig gewählt, GTA-Stil)
 local DIALOGUE = {
     approach = {
         'Hey Süßer, suchst du Gesellschaft?',
@@ -140,16 +125,14 @@ local DIALOGUE = {
     },
 }
 
--- Untertitel anzeigen (GTA-Style: unten mittig, halbtransparent)
 local subtitleEndTime = 0
-local subtitleText = ''
+local subtitleText    = ''
 
 local function showSubtitle(text, durationMs)
-    subtitleText = text
+    subtitleText    = text
     subtitleEndTime = GetGameTimer() + (durationMs or 3500)
 end
 
--- Subtitle-Renderer (läuft dauerhaft, zeichnet nur wenn aktiv)
 CreateThread(function()
     while true do
         if GetGameTimer() < subtitleEndTime and subtitleText ~= '' then
@@ -170,10 +153,8 @@ CreateThread(function()
     end
 end)
 
--- Sprache + Untertitel zusammen abspielen
 local function hookerSay(ped, phase)
     if not ped or not DoesEntityExist(ped) then return end
-    -- GTA-Ped-Speech (native Stimme, kann fehlschlagen -> pcall)
     local speeches = SPEECH[phase]
     if speeches then
         local s = speeches[math.random(#speeches)]
@@ -181,23 +162,20 @@ local function hookerSay(ped, phase)
             PlayPedAmbientSpeechNative(ped, s, 'SPEECH_PARAMS_FORCE_SHOUTED_CLEAR')
         end)
     end
-    -- Untertitel
     local lines = DIALOGUE[phase]
-    if lines then
-        showSubtitle(lines[math.random(#lines)], 3500)
-    end
+    if lines then showSubtitle(lines[math.random(#lines)], 3500) end
 end
 
--- Ride-Talk: während der Fahrt gelegentlich reden
 local rideTalkActive = false
+
 local function startRideTalk()
     if rideTalkActive then return end
     rideTalkActive = true
     CreateThread(function()
-        Wait(4000) -- erste Pause nach dem Einsteigen
+        Wait(4000)
         while rideTalkActive and activePed and DoesEntityExist(activePed) and state == 'RIDING' do
             hookerSay(activePed, 'ride')
-            Wait(math.random(8000, 14000)) -- alle 8-14 Sekunden
+            Wait(math.random(8000, 14000))
         end
         rideTalkActive = false
     end)
@@ -208,7 +186,7 @@ local function stopRideTalk()
 end
 
 -- ════════════════════════════════════════════════════════════════
---  HELFER
+--  HILFSFUNKTIONEN
 -- ════════════════════════════════════════════════════════════════
 local function dbg(...)
     if Config.Debug then print('[mtj_prostitution]', ...) end
@@ -216,7 +194,7 @@ end
 
 local function setState(newState)
     if state ~= newState then
-        state = newState
+        state          = newState
         stateChangedAt = GetGameTimer()
     end
 end
@@ -227,7 +205,6 @@ local function notify(msg)
     EndTextCommandThefeedPostTicker(false, true)
 end
 
--- GTA-Style Hilfetext oben links (mit Button-Glyphen wie ~INPUT_VEH_HORN~)
 local function helpText(msg, beep)
     BeginTextCommandDisplayHelp('STRING')
     AddTextComponentSubstringPlayerName(msg)
@@ -253,9 +230,7 @@ local function isPlayerInServiceAnimation(player)
     if not player or player == 0 then return false end
     for _, dict in ipairs(SERVICE_ANIM_DICTS) do
         for _, anim in ipairs(SERVICE_PLAYER_ANIMS) do
-            if IsEntityPlayingAnim(player, dict, anim, 3) then
-                return true
-            end
+            if IsEntityPlayingAnim(player, dict, anim, 3) then return true end
         end
     end
     return false
@@ -275,24 +250,18 @@ local function getServiceAnimDictForPed(ped)
     if ped and ped ~= 0 and DoesEntityExist(ped) and GetEntityModel(ped) == HOOKER_03_MODEL then
         return SERVICE_ANIM_DICT_AF
     end
-
     return SERVICE_ANIM_DICT
 end
 
 local function releasePlayerLocks(forceClearTasks)
     local player = PlayerPedId()
-    -- Fahrzeugrütteln sofort stoppen
     serviceRocking = false
-    -- Cinematic-Kamera zerstören, falls noch aktiv; sonst nur Rendering deaktivieren
     RenderScriptCams(false, false, 0, true, true)
     if activeCam then
         DestroyCam(activeCam, true)
         activeCam = nil
     end
-    -- Schwarzblende aufheben, falls der Bildschirm noch ausgeblendet ist
-    if IsScreenFadedOut() then
-        DoScreenFadeIn(0)
-    end
+    if IsScreenFadedOut() then DoScreenFadeIn(0) end
     SetNuiFocus(false, false)
     SendNUIMessage({ action = 'hide' })
     EnableAllControlActions(0)
@@ -301,9 +270,6 @@ local function releasePlayerLocks(forceClearTasks)
     if forceClearTasks or isPlayerInServiceAnimation(player) then
         stopPlayerServiceAnimations(player)
         if IsPedInAnyVehicle(player, false) then
-            -- ClearPedTasksImmediately würde den Spieler aus dem Fahrzeug werfen;
-            -- ClearPedTasks (nicht-sofort) räumt den primären Task-Slot auf
-            -- ohne Physik-Probleme -> gibt die Aussteigen-Taste frei
             ClearPedTasks(player)
         else
             ClearPedTasksImmediately(player)
@@ -324,24 +290,22 @@ local function isPlayerBusyWithService(player)
 end
 
 local function stopPostServiceWatchdog()
-    postServiceWatchdogToken = postServiceWatchdogToken + 1
-    postServiceRecoveryUntil = 0
+    postServiceWatchdogToken  = postServiceWatchdogToken + 1
+    postServiceRecoveryUntil  = 0
 end
 
 local function startPostServiceWatchdog(veh, ped, reason)
     stopPostServiceWatchdog()
-
-    local token = postServiceWatchdogToken
+    local token      = postServiceWatchdogToken
     local trackedVeh = (veh and veh ~= 0 and DoesEntityExist(veh)) and veh or 0
     local trackedPed = (ped and ped ~= 0 and DoesEntityExist(ped)) and ped or 0
 
     CreateThread(function()
-        dbg('[WATCHDOG] Start post-service watchdog:', reason or 'n/a', 'veh=', trackedVeh, 'ped=', trackedPed)
-
-        local deadline = GetGameTimer() + getPostServiceWatchdogMs()
+        local deadline        = GetGameTimer() + getPostServiceWatchdogMs()
         postServiceRecoveryUntil = deadline
+
         while postServiceWatchdogToken == token and GetGameTimer() < deadline do
-            local player = PlayerPedId()
+            local player     = PlayerPedId()
             local playerBusy = isPlayerBusyWithService(player)
 
             releasePlayerLocks(playerBusy)
@@ -366,17 +330,11 @@ local function startPostServiceWatchdog(veh, ped, reason)
                 end
             end
 
-            local pedGone = trackedPed == 0
-            local vehicleGone = trackedVeh == 0
-            local pedLeftVehicle = trackedPed ~= 0
-                and trackedVeh ~= 0
-                and DoesEntityExist(trackedPed)
-                and not IsPedInVehicle(trackedPed, trackedVeh, false)
-            local pedReleased = pedGone or vehicleGone or pedLeftVehicle
+            local pedReleased = trackedPed == 0
+                or trackedVeh == 0
+                or (DoesEntityExist(trackedPed) and not IsPedInVehicle(trackedPed, trackedVeh, false))
 
-            if not playerBusy and pedReleased then
-                break
-            end
+            if not playerBusy and pedReleased then break end
 
             Wait(250)
         end
@@ -387,7 +345,6 @@ local function startPostServiceWatchdog(veh, ped, reason)
                 SetVehicleLights(trackedVeh, 0)
             end
             postServiceRecoveryUntil = 0
-            dbg('[WATCHDOG] Stop post-service watchdog:', reason or 'n/a')
         end
     end)
 end
@@ -402,7 +359,6 @@ local function isNight()
     end
 end
 
--- Zeitfenster: darf gerade angeworben / Service gestartet werden?
 local function isServiceTime()
     local sh = Config.ServiceHours
     if not sh or not sh.enabled then return true end
@@ -414,14 +370,13 @@ local function isServiceTime()
     end
 end
 
--- Zählt NPCs (und optional Spieler) im Umkreis - für die Privatsphäre-Prüfung
 local function nearbyPeopleCount(center, radius)
     local count = 0
-    local me = PlayerPedId()
+    local me    = PlayerPedId()
     for _, ped in ipairs(GetGamePool('CPed')) do
         if ped ~= me and ped ~= activePed and DoesEntityExist(ped) and not IsPedDeadOrDying(ped, true) then
-            local isPlayerPed = IsPedAPlayer(ped)
-            if (not isPlayerPed) or Config.PrivacyIncludePlayers then
+            local isPlayer = IsPedAPlayer(ped)
+            if (not isPlayer) or Config.PrivacyIncludePlayers then
                 if #(GetEntityCoords(ped) - center) < radius then
                     count = count + 1
                 end
@@ -434,18 +389,14 @@ end
 local function loadModel(model)
     RequestModel(model)
     local t = 0
-    while not HasModelLoaded(model) and t < 100 do
-        Wait(50); t = t + 1
-    end
+    while not HasModelLoaded(model) and t < 100 do Wait(50); t = t + 1 end
     return HasModelLoaded(model)
 end
 
 local function loadAnimDict(dict)
     RequestAnimDict(dict)
     local t = 0
-    while not HasAnimDictLoaded(dict) and t < 100 do
-        Wait(50); t = t + 1
-    end
+    while not HasAnimDictLoaded(dict) and t < 100 do Wait(50); t = t + 1 end
     return HasAnimDictLoaded(dict)
 end
 
@@ -461,11 +412,9 @@ local function isRecognizedHookerPed(ped)
     if not ped or ped == 0 or not DoesEntityExist(ped) then return false end
     if IsPedAPlayer(ped) or IsPedDeadOrDying(ped, true) then return false end
     if hookerModelHashes[GetEntityModel(ped)] then return true end
-
     if Config.EnableStandardPedRecognition then
         return IsPedHuman(ped) and not IsPedMale(ped)
     end
-
     return false
 end
 
@@ -473,12 +422,67 @@ local function getDriverVehicle()
     local ped = PlayerPedId()
     if not IsPedInAnyVehicle(ped, false) then return nil end
     local veh = GetVehiclePedIsIn(ped, false)
-    if GetPedInVehicleSeat(veh, -1) ~= ped then return nil end  -- nur Fahrer
+    if GetPedInVehicleSeat(veh, -1) ~= ped then return nil end
     return veh
 end
 
 -- ════════════════════════════════════════════════════════════════
---  PED-SPAWNING (Threads, läuft dauerhaft, prüft Tageszeit)
+--  PED FÜR REKRUTIERUNG VORBEREITEN
+--  Setzt alle KI-Sperren und löscht laufende Tasks, bevor ein
+--  neuer Task (TaskEnterVehicle o. ä.) zugewiesen wird.
+-- ════════════════════════════════════════════════════════════════
+local function preparePedForRecruitment(ped)
+    SetBlockingOfNonTemporaryEvents(ped, true)
+    SetPedFleeAttributes(ped, 0, false)
+    SetPedKeepTask(ped, false)
+    ClearPedTasksImmediately(ped)
+    FreezeEntityPosition(ped, false)
+end
+
+-- ════════════════════════════════════════════════════════════════
+--  PED NACH SERVICE / ABBRUCH FREIGEBEN
+--  Entsperrt KI, lässt den Ped aussteigen, lässt ihn wandern
+--  und löscht ihn nach 15 s.
+-- ════════════════════════════════════════════════════════════════
+local function releasePedAfterService(ped, veh)
+    if not ped or not DoesEntityExist(ped) then return end
+    if IsPedDeadOrDying(ped, true) then DeleteEntity(ped); return end
+
+    SetPedConfigFlag(ped, 26, false)
+    SetBlockingOfNonTemporaryEvents(ped, false)
+    SetPedKeepTask(ped, false)
+
+    local pedVeh = GetVehiclePedIsIn(ped, false)
+    if pedVeh == 0 and veh and DoesEntityExist(veh) then pedVeh = veh end
+
+    if pedVeh ~= 0 then TaskLeaveVehicle(ped, pedVeh, 0) end
+
+    SetEntityAsNoLongerNeeded(ped)
+
+    local toDelete = ped
+    CreateThread(function()
+        local t0 = GetGameTimer()
+        while DoesEntityExist(toDelete)
+            and not IsPedDeadOrDying(toDelete, true)
+            and pedVeh ~= 0
+            and IsPedInVehicle(toDelete, pedVeh, false)
+            and GetGameTimer() - t0 < 6000
+        do
+            Wait(200)
+        end
+
+        if not DoesEntityExist(toDelete) then return end
+        if IsPedDeadOrDying(toDelete, true) then DeleteEntity(toDelete); return end
+
+        TaskWanderStandard(toDelete, 10.0, 10)
+        SetTimeout(15000, function()
+            if DoesEntityExist(toDelete) then DeleteEntity(toDelete) end
+        end)
+    end)
+end
+
+-- ════════════════════════════════════════════════════════════════
+--  PED SPAWNEN
 -- ════════════════════════════════════════════════════════════════
 local function clearPeds()
     for i, ped in pairs(spawnedPeds) do
@@ -509,8 +513,8 @@ local function spawnPeds()
 
                 if Config.ShowBlips then
                     local blip = AddBlipForCoord(point.x, point.y, point.z)
-                    SetBlipSprite(blip, 121)        -- Hure-Icon
-                    SetBlipColour(blip, 27)         -- pink
+                    SetBlipSprite(blip, 121)
+                    SetBlipColour(blip, 27)
                     SetBlipScale(blip, 0.8)
                     SetBlipAsShortRange(blip, true)
                     BeginTextCommandSetBlipName('STRING')
@@ -520,35 +524,33 @@ local function spawnPeds()
                 end
                 count = count + 1
             else
-                dbg('Modell konnte nicht geladen werden fuer Spawn', i)
+                dbg('Modell konnte nicht geladen werden:', i)
             end
         end
     end
-    if count > 0 then dbg('Neue Nutten gespawnt:', count) end
+    if count > 0 then dbg('Neue Peds gespawnt:', count) end
 end
 
 CreateThread(function()
     while true do
-        local sleep = 5000
         if isNight() then
             spawnPeds()
         else
             if next(spawnedPeds) and not activePed then clearPeds() end
         end
-        Wait(sleep)
+        Wait(5000)
     end
 end)
 
 -- ════════════════════════════════════════════════════════════════
---  SPIEL-POOL-SCAN: unbekannte Huren-Peds in externalPeds aufnehmen
---  Läuft im Hintergrund und registriert alle Peds mit einem der konfigurierten
---  Modelle automatisch, egal ob von GTA ambient oder einem anderen Script.
+--  SPIEL-POOL-SCAN
 -- ════════════════════════════════════════════════════════════════
 CreateThread(function()
     while true do
         if isServiceTime() then
-            local me = PlayerPedId()
-            local myPos = GetEntityCoords(me)
+            local me         = PlayerPedId()
+            local myPos      = GetEntityCoords(me)
+            local scanRadius = math.max(getRecruitDistance(), getRecruitDistanceOnFoot()) + 5.0
             for _, ped in ipairs(GetGamePool('CPed')) do
                 if ped ~= me
                     and ped ~= activePed
@@ -557,19 +559,13 @@ CreateThread(function()
                     and isRecognizedHookerPed(ped)
                     and not externalPeds[ped]
                 then
-                    -- Nur Peds in der Nähe registrieren (Scan-Radius = max Erkennungsweite)
-                    local scanRadius = math.max(getRecruitDistance(), getRecruitDistanceOnFoot()) + 5.0
                     local pedPos = GetEntityCoords(ped)
                     if #(vector2(pedPos.x, pedPos.y) - vector2(myPos.x, myPos.y)) < scanRadius then
-                        -- Nicht erneut eintragen wenn bereits in spawnedPeds
                         local inSpawned = false
                         for _, sp in pairs(spawnedPeds) do
                             if sp == ped then inSpawned = true; break end
                         end
-                        if not inSpawned then
-                            externalPeds[ped] = true
-                            dbg('Ped aus Spiel-Pool registriert:', ped)
-                        end
+                        if not inSpawned then externalPeds[ped] = true end
                     end
                 end
             end
@@ -579,7 +575,7 @@ CreateThread(function()
 end)
 
 -- ════════════════════════════════════════════════════════════════
---  ANWERBEN PER HUPE
+--  ANWERBEN
 -- ════════════════════════════════════════════════════════════════
 CreateThread(function()
     while true do
@@ -587,51 +583,42 @@ CreateThread(function()
         if state == 'IDLE' and isServiceTime() and (GetGameTimer() - lastService) > (Config.Cooldown * 1000) then
             local veh = getDriverVehicle()
             if veh then
-                local vp = GetEntityCoords(veh)
-                -- nächste Nutte finden (2D-Distanz, Höhe egal)
+                -- Per Fahrzeug anwerben
+                local vp              = GetEntityCoords(veh)
                 local nearest, nearIdx, nearDist = nil, nil, 9999.0
-                local nearIsExternal = false
+                local nearIsExternal  = false
+
                 for i, ped in pairs(spawnedPeds) do
                     if DoesEntityExist(ped) and not IsPedDeadOrDying(ped, true) then
-                        local pc = GetEntityCoords(ped)
-                        local d = #(vector2(vp.x, vp.y) - vector2(pc.x, pc.y))
-                        if d < nearDist then
-                            nearDist, nearest, nearIdx, nearIsExternal = d, ped, i, false
-                        end
+                        local d = #(vector2(vp.x, vp.y) - vector2(GetEntityCoords(ped).x, GetEntityCoords(ped).y))
+                        if d < nearDist then nearDist, nearest, nearIdx, nearIsExternal = d, ped, i, false end
                     end
                 end
-                -- auch extern registrierte Huren (z.B. vom npc_dashboard) prüfen
                 for ped in pairs(externalPeds) do
                     if DoesEntityExist(ped) and not IsPedDeadOrDying(ped, true) then
-                        local pc = GetEntityCoords(ped)
-                        local d = #(vector2(vp.x, vp.y) - vector2(pc.x, pc.y))
-                        if d < nearDist then
-                            nearDist, nearest, nearIdx, nearIsExternal = d, ped, nil, true
-                        end
+                        local d = #(vector2(vp.x, vp.y) - vector2(GetEntityCoords(ped).x, GetEntityCoords(ped).y))
+                        if d < nearDist then nearDist, nearest, nearIdx, nearIsExternal = d, ped, nil, true end
                     else
-                        externalPeds[ped] = nil  -- ungültige Handles aufräumen
+                        externalPeds[ped] = nil
                     end
                 end
 
                 if nearest and nearDist < getRecruitDistance() then
                     sleep = 0
                     local pc = GetEntityCoords(nearest)
-                    -- Approach-Speech: sie ruft dem Spieler zu (alle 8s, nicht spammen)
                     if not lastApproachCall or GetGameTimer() - lastApproachCall > 8000 then
                         lastApproachCall = GetGameTimer()
                         hookerSay(nearest, 'approach')
                     end
                     if Config.NoRecruitWhenWanted and GetPlayerWantedLevel(PlayerId()) > 0 then
-                        -- Sie steigt nicht ein solange du gesucht wirst (GTA-Style)
                         helpText('Sie steigt nicht ein, solange die ~r~Cops~s~ hinter dir her sind.', false)
                     else
                         helpText('Drücke ~INPUT_VEH_HORN~ oder ~INPUT_PICKUP~ um die Begleitung anzuwerben', false)
                         DrawText3D(pc.x, pc.y, pc.z + 1.0, '~y~Begleitung~w~')
-                        -- Hupe (86) ODER E (38) ODER konfigurierte Taste
                         if IsControlJustPressed(0, Config.HornControl)
                             or IsControlJustPressed(0, 86)
-                            or IsControlJustPressed(0, 38) then
-                            dbg('Nutte angeworben, Distanz:', math.floor(nearDist))
+                            or IsControlJustPressed(0, 38)
+                        then
                             activePed = nearest
                             if nearIsExternal then
                                 externalPeds[nearest] = nil
@@ -647,57 +634,45 @@ CreateThread(function()
                     end
                 end
             else
-                -- ── Anwerben zu Fuß (kein Fahrzeug) ──────────────────────────
-                local player = PlayerPedId()
-                local pp = GetEntityCoords(player)
+                -- Zu Fuß anwerben
+                local player          = PlayerPedId()
+                local pp              = GetEntityCoords(player)
                 local nearest, nearIdx, nearDist = nil, nil, 9999.0
-                local nearIsExternal = false
+                local nearIsExternal  = false
+
                 for i, ped in pairs(spawnedPeds) do
                     if DoesEntityExist(ped) and not IsPedDeadOrDying(ped, true) then
-                        local pc = GetEntityCoords(ped)
-                        local d = #(vector2(pp.x, pp.y) - vector2(pc.x, pc.y))
-                        if d < nearDist then
-                            nearDist, nearest, nearIdx, nearIsExternal = d, ped, i, false
-                        end
+                        local d = #(vector2(pp.x, pp.y) - vector2(GetEntityCoords(ped).x, GetEntityCoords(ped).y))
+                        if d < nearDist then nearDist, nearest, nearIdx, nearIsExternal = d, ped, i, false end
                     end
                 end
                 for ped in pairs(externalPeds) do
                     if DoesEntityExist(ped) and not IsPedDeadOrDying(ped, true) then
-                        local pc = GetEntityCoords(ped)
-                        local d = #(vector2(pp.x, pp.y) - vector2(pc.x, pc.y))
-                        if d < nearDist then
-                            nearDist, nearest, nearIdx, nearIsExternal = d, ped, nil, true
-                        end
+                        local d = #(vector2(pp.x, pp.y) - vector2(GetEntityCoords(ped).x, GetEntityCoords(ped).y))
+                        if d < nearDist then nearDist, nearest, nearIdx, nearIsExternal = d, ped, nil, true end
                     else
                         externalPeds[ped] = nil
                     end
                 end
 
-                -- Spiel-Pool direkt scannen wenn kein Ped in Reichweite – läuft jedes Mal, nicht nur
-                -- wenn nearest == nil, damit weit entfernte Peds aus spawnedPeds nicht blockieren.
-                -- Erkennt Peds von externen Scripten (z.B. npc-system) auch ohne vorherige Registrierung.
                 local recruitRange = getRecruitDistanceOnFoot()
                 if not nearest or nearDist >= recruitRange then
                     for _, ped in ipairs(GetGamePool('CPed')) do
-                        if ped ~= player
-                            and ped ~= activePed
+                        if ped ~= player and ped ~= activePed
                             and DoesEntityExist(ped)
                             and not IsPedDeadOrDying(ped, true)
                             and isRecognizedHookerPed(ped)
                         then
-                            local pedPos = GetEntityCoords(ped)
-                            local d = #(vector2(pp.x, pp.y) - vector2(pedPos.x, pedPos.y))
+                            local d = #(vector2(pp.x, pp.y) - vector2(GetEntityCoords(ped).x, GetEntityCoords(ped).y))
                             if d < nearDist then
                                 nearDist, nearest, nearIdx, nearIsExternal = d, ped, nil, true
-                                if d < recruitRange then
-                                    externalPeds[ped] = true  -- fuer naechste Runde vormerken
-                                end
+                                if d < recruitRange then externalPeds[ped] = true end
                             end
                         end
                     end
                 end
 
-                if nearest and nearDist < getRecruitDistanceOnFoot() then
+                if nearest and nearDist < recruitRange then
                     sleep = 0
                     local pc = GetEntityCoords(nearest)
                     if not lastApproachCall or GetGameTimer() - lastApproachCall > 8000 then
@@ -709,8 +684,7 @@ CreateThread(function()
                     else
                         helpText('Drücke ~INPUT_PICKUP~ um die Begleitung anzusprechen', false)
                         DrawText3D(pc.x, pc.y, pc.z + 1.0, '~y~Begleitung~w~')
-                        if IsControlJustPressed(0, 38) then  -- E
-                            dbg('Nutte zu Fuß angeworben, Distanz:', math.floor(nearDist))
+                        if IsControlJustPressed(0, 38) then
                             activePed = nearest
                             if nearIsExternal then
                                 externalPeds[nearest] = nil
@@ -732,34 +706,37 @@ CreateThread(function()
 end)
 
 -- ════════════════════════════════════════════════════════════════
---  EINSTEIGEN
+--  EINSTEIGEN (Fahrzeug-Rekrutierung)
 -- ════════════════════════════════════════════════════════════════
 local function startRecruit()
     local veh = getDriverVehicle()
     if not veh then setState('IDLE'); activePed = nil; return end
-    if not DoesEntityExist(activePed) then setState('IDLE'); activePed = nil; return end
+    if not activePed or not DoesEntityExist(activePed) then setState('IDLE'); activePed = nil; return end
 
-    -- Dashboard-Szenario/KeepTask lösen
-    SetPedKeepTask(activePed, false)
-    ClearPedTasksImmediately(activePed)
-    FreezeEntityPosition(activePed, false)
-
-    -- Normal zum Auto laufen und einsteigen (wie in GTA)
-    TaskEnterVehicle(activePed, veh, 10000, 0, 2.0, 1, 0)
+    preparePedForRecruitment(activePed)
 
     notify('~y~Sie kommt...~s~')
+    TaskEnterVehicle(activePed, veh, 15000, 0, 2.0, 1, 0)
 
-    -- Watchdog: wenn sie nach 10 s nicht drin ist, Fallback-Teleport
     local t0 = GetGameTimer()
     while not IsPedInVehicle(activePed, veh, false) do
         Wait(300)
         if not DoesEntityExist(activePed) or not DoesEntityExist(veh) then
             setState('IDLE'); activePed = nil; return
         end
-        if GetGameTimer() - t0 > 10000 then
+        if GetGameTimer() - t0 > 15000 then
             SetPedIntoVehicle(activePed, veh, 0)
+            Wait(500)
             break
         end
+    end
+
+    -- Stabilisierungspause: GTA braucht einen Moment um den Sitz zu bestätigen
+    Wait(ENTRY_STABILIZE_MS)
+
+    if not DoesEntityExist(activePed) or not IsPedInVehicle(activePed, veh, false) then
+        cleanupEscort('~r~Sie hat das Fahrzeug sofort wieder verlassen.')
+        return
     end
 
     notify('~g~Sie ist drin.~s~ Fahr zu einer ~y~abgelegenen Stelle~s~.')
@@ -769,16 +746,12 @@ local function startRecruit()
 end
 
 -- ════════════════════════════════════════════════════════════════
---  FOLGE-MODUS (Fuß-Rekrutierung → gemeinsam zum Auto)
+--  FOLGEMODUS (Fuß-Rekrutierung → gemeinsam zum Fahrzeug)
 -- ════════════════════════════════════════════════════════════════
 local function startFollowRecruit()
-    if not DoesEntityExist(activePed) then setState('IDLE'); activePed = nil; return end
+    if not activePed or not DoesEntityExist(activePed) then setState('IDLE'); activePed = nil; return end
 
-    -- Szenario/KeepTask des Peds lösen
-    SetPedKeepTask(activePed, false)
-    ClearPedTasksImmediately(activePed)
-    FreezeEntityPosition(activePed, false)
-    SetBlockingOfNonTemporaryEvents(activePed, true)
+    preparePedForRecruitment(activePed)
 
     notify('~y~Sie folgt dir.~s~ Geh zu deinem ~y~Fahrzeug~s~.')
     setState('FOLLOWING')
@@ -789,60 +762,60 @@ local function startFollowRecruit()
         local MAX_DIST = Config.FollowRecruitMaxDistance or 75.0
 
         while state == 'FOLLOWING' do
-            local player = PlayerPedId()  -- jedes Mal neu holen (nach Respawn kann sich die ID ändern)
+            local player = PlayerPedId()
 
-            if not DoesEntityExist(activePed) or IsPedDeadOrDying(activePed, true) then
+            if not activePed or not DoesEntityExist(activePed) or IsPedDeadOrDying(activePed, true) then
                 cleanupEscort('~r~Sie ist weg.')
                 return
             end
 
-            local playerPos = GetEntityCoords(player)
-            local pedPos    = GetEntityCoords(activePed)
-            local dist      = #(vector2(playerPos.x, playerPos.y) - vector2(pedPos.x, pedPos.y))
+            local pp   = GetEntityCoords(player)
+            local pc   = GetEntityCoords(activePed)
+            local dist = #(vector2(pp.x, pp.y) - vector2(pc.x, pc.y))
 
-            -- Ped zu weit? -> Abbruch
             if dist > MAX_DIST then
                 cleanupEscort('~r~Sie hat dich verloren.')
                 return
             end
 
-            -- Timeout abgelaufen? -> Abbruch
             if GetGameTimer() - t0 > TIMEOUT then
                 cleanupEscort('~r~Sie ist gegangen. Du hast zu lange gewartet.')
                 return
             end
 
-            -- Follow-Task kontinuierlich erneuern (1 m hinter dem Spieler)
             TaskFollowToOffsetOfEntity(activePed, player, 0.0, -1.0, 0.0, 1.5, -1, 0.5, true)
 
-            -- Hinweistext
-            helpText('Geh zu deinem ~y~Fahrzeug~s~. Sie folgt dir. (~r~' .. math.ceil((TIMEOUT - (GetGameTimer() - t0)) / 1000) .. 's~s~)', false)
+            local remaining = math.ceil((TIMEOUT - (GetGameTimer() - t0)) / 1000)
+            helpText('Geh zu deinem ~y~Fahrzeug~s~. Sie folgt dir. (~r~' .. remaining .. 's~s~)', false)
 
-            -- Hat der Spieler ein Fahrzeug betreten (als Fahrer)?
             local veh = getDriverVehicle()
             if veh then
-                -- Ped zum Einsteigen auffordern
-                SetPedKeepTask(activePed, false)
-                ClearPedTasks(activePed)
-                TaskEnterVehicle(activePed, veh, 12000, 0, 2.0, 1, 0)
+                preparePedForRecruitment(activePed)
+                TaskEnterVehicle(activePed, veh, 15000, 0, 2.0, 1, 0)
                 notify('~y~Sie steigt ein...~s~')
 
-                -- Warten bis sie drin ist (Watchdog 12 s)
                 local t1 = GetGameTimer()
                 while not IsPedInVehicle(activePed, veh, false) do
                     Wait(300)
                     if not DoesEntityExist(activePed) or not DoesEntityExist(veh) then
                         setState('IDLE'); activePed = nil; return
                     end
-                    -- Spieler nicht mehr Fahrer dieses Fahrzeugs? -> Abbruch
                     if GetPedInVehicleSeat(veh, -1) ~= player then
                         cleanupEscort('~r~Vorgang abgebrochen.')
                         return
                     end
-                    if GetGameTimer() - t1 > 12000 then
+                    if GetGameTimer() - t1 > 15000 then
                         SetPedIntoVehicle(activePed, veh, 0)
+                        Wait(500)
                         break
                     end
+                end
+
+                Wait(ENTRY_STABILIZE_MS)
+
+                if not DoesEntityExist(activePed) or not IsPedInVehicle(activePed, veh, false) then
+                    cleanupEscort('~r~Sie hat das Fahrzeug sofort wieder verlassen.')
+                    return
                 end
 
                 notify('~g~Sie ist drin.~s~ Fahr zu einer ~y~abgelegenen Stelle~s~.')
@@ -858,54 +831,52 @@ local function startFollowRecruit()
 end
 
 -- ════════════════════════════════════════════════════════════════
---  RUHIGE STELLE SUCHEN (keine feste Ecke - frei wie in GTA Online)
+--  FAHRT: RUHIGE STELLE SUCHEN
 -- ════════════════════════════════════════════════════════════════
 local lastPrivacyCheck = 0
-local cachedNearby = 0
+local cachedNearby     = 0
+
 local function watchRiding()
-    local ped = PlayerPedId()
     local veh = getDriverVehicle()
 
-    -- Abbruch wenn man aussteigt oder die Hure weg ist
-    if not veh or not DoesEntityExist(activePed) then
-        return cleanupEscort('~r~Vorgang abgebrochen.')
+    if not veh or not activePed or not DoesEntityExist(activePed) then
+        cleanupEscort('~r~Vorgang abgebrochen.')
+        return
     end
-    -- Abbruch wenn sie nicht (mehr) im Auto ist
-    if not IsPedInVehicle(activePed, veh, false) then return end
 
-    -- Zeitfenster abgelaufen? -> Hinweis, kein Start möglich
+    if not IsPedInVehicle(activePed, veh, false) then
+        cleanupEscort('~r~Sie hat das Fahrzeug verlassen.')
+        return
+    end
+
     if not isServiceTime() then
         helpText('Zu dieser Uhrzeit läuft nichts. Komm im Zeitfenster wieder.', false)
         return
     end
 
-    local pos = GetEntityCoords(ped)
+    local pos   = GetEntityCoords(PlayerPedId())
     local speed = GetEntitySpeed(veh)
+    local now   = GetGameTimer()
 
-    -- NPC-Umkreis nur alle 400ms neu prüfen (Performance)
-    local now = GetGameTimer()
     if now - lastPrivacyCheck > 400 then
         lastPrivacyCheck = now
-        cachedNearby = nearbyPeopleCount(pos, Config.PrivacyRadius)
+        cachedNearby     = nearbyPeopleCount(pos, Config.PrivacyRadius)
     end
 
     if cachedNearby > 0 then
-        -- zu viele Leute -> weiterfahren
         helpText('Hier sind zu viele Leute. Fahr weiter zu einer ~y~abgelegenen Stelle~s~.', false)
     elseif speed > Config.MaxStartSpeed then
-        -- privat, aber noch in Bewegung -> anhalten
         helpText('Abgelegene Stelle gefunden. ~g~Halte an~s~, um zu starten.', false)
     else
-        -- privat + steht -> Service möglich
         helpText('Drücke ~INPUT_CONTEXT~, um die Begleitung zu fragen', false)
-        if IsControlJustPressed(0, 38) then  -- E
+        if IsControlJustPressed(0, 38) then
             openServiceMenu()
         end
     end
 end
 
 -- ════════════════════════════════════════════════════════════════
---  SERVICE-MENÜ (NUI)
+--  SERVICE-MENÜ
 -- ════════════════════════════════════════════════════════════════
 function openServiceMenu()
     setState('MENU')
@@ -919,7 +890,6 @@ RegisterNUICallback('selectService', function(data, cb)
     local idx = tonumber(data.index)
     local svc = Config.Services[idx]
     if not svc then return cleanupEscort('~r~Ungültige Auswahl.') end
-    -- Server validiert Geld und führt Transaktion aus
     ESX.TriggerServerCallback('mtj_prostitution:pay', function(success, reason)
         if success then
             runService(svc)
@@ -936,7 +906,7 @@ RegisterNUICallback('cancelMenu', function(_, cb)
 end)
 
 -- ════════════════════════════════════════════════════════════════
---  SERVICE (Fade + Fortschritt, dezent / Fade-to-Black)
+--  SERVICE
 -- ════════════════════════════════════════════════════════════════
 function runService(svc)
     stopPostServiceWatchdog()
@@ -948,69 +918,56 @@ function runService(svc)
         TriggerServerEvent('mtj_prostitution:policeAlert', GetEntityCoords(PlayerPedId()))
     end
 
-    local player = PlayerPedId()
-    local veh = GetVehiclePedIsIn(player, false)
-    local scene = svc.scene or 'sex'
-    local DICT = getServiceAnimDictForPed(activePed)
+    local player       = PlayerPedId()
+    local veh          = GetVehiclePedIsIn(player, false)
+    local scene        = svc.scene or 'sex'
+    local DICT         = getServiceAnimDictForPed(activePed)
     local playerFemale = (GetEntityModel(player) == GetHashKey('mp_f_freemode_01'))
     local realDuration = (svc.loops or 6) * 2.5
+
     serviceFailSafeUntil = GetGameTimer() + math.max(math.floor(realDuration * 1000) + SERVICE_FAILSAFE_BUFFER_MS, 45000)
 
-    if veh == 0 or not DoesEntityExist(veh) or not DoesEntityExist(activePed) then
+    if veh == 0 or not DoesEntityExist(veh) or not activePed or not DoesEntityExist(activePed) then
         return cleanupEscort('~r~Vorgang abgebrochen.')
     end
 
-    -- Echte GTA-Animationen je nach Service (Enter -> Loop -> Exit)
     local A
     if scene == 'blowjob' then
         A = {
-            e1h='proposition_to_BJ_p1_prostitute', e2h='proposition_to_BJ_p2_prostitute', lh='BJ_loop_prostitute',
-            x1h='BJ_to_proposition_p1_prostitute', x2h='BJ_to_proposition_p2_prostitute',
-            e1p='proposition_to_BJ_p1_male',       e2p='proposition_to_BJ_p2_male',       lp='BJ_loop_male',
-            x1p='BJ_to_proposition_p1_male',       x2p='BJ_to_proposition_p2_male',
-            speech = playerFemale and 'SEX_ORAL_FEM' or 'SEX_ORAL'
+            e1h = 'proposition_to_BJ_p1_prostitute', e2h = 'proposition_to_BJ_p2_prostitute',
+            lh  = 'BJ_loop_prostitute',
+            x1h = 'BJ_to_proposition_p1_prostitute', x2h = 'BJ_to_proposition_p2_prostitute',
+            e1p = 'proposition_to_BJ_p1_male',       e2p = 'proposition_to_BJ_p2_male',
+            lp  = 'BJ_loop_male',
+            x1p = 'BJ_to_proposition_p1_male',       x2p = 'BJ_to_proposition_p2_male',
+            speech = playerFemale and 'SEX_ORAL_FEM' or 'SEX_ORAL',
         }
     else
         A = {
-            e1h='proposition_to_sex_p1_prostitute', e2h='proposition_to_sex_p2_prostitute', lh='sex_loop_prostitute',
-            x1h='sex_to_proposition_p1_prostitute', x2h='sex_to_proposition_p2_prostitute',
-            e1p='proposition_to_sex_p1_male',       e2p='proposition_to_sex_p2_male',       lp='sex_loop_male',
-            x1p='sex_to_proposition_p1_male',       x2p='sex_to_proposition_p2_male',
-            speech = playerFemale and 'SEX_GENERIC_FEM' or 'SEX_GENERIC'
+            e1h = 'proposition_to_sex_p1_prostitute', e2h = 'proposition_to_sex_p2_prostitute',
+            lh  = 'sex_loop_prostitute',
+            x1h = 'sex_to_proposition_p1_prostitute', x2h = 'sex_to_proposition_p2_prostitute',
+            e1p = 'proposition_to_sex_p1_male',       e2p = 'proposition_to_sex_p2_male',
+            lp  = 'sex_loop_male',
+            x1p = 'sex_to_proposition_p1_male',       x2p = 'sex_to_proposition_p2_male',
+            speech = playerFemale and 'SEX_GENERIC_FEM' or 'SEX_GENERIC',
         }
     end
 
     loadAnimDict(DICT)
 
-    -- GTA-KI daran hindern, der Hure während des Services einen neuen primären Task
-    -- (z.B. Fahrzeug verlassen) zuzuweisen. Ohne diese Sperre verlässt sie das Auto
-    -- nach ~1 s, weil TaskPlayAnim(flag=49) den secondary-Task-Slot belegt und den
-    -- primären Slot leer lässt, den die Engine dann mit einem Exit-Task füllt.
-    if DoesEntityExist(activePed) then
-        SetBlockingOfNonTemporaryEvents(activePed, true)
-        SetPedKeepTask(activePed, true)
-    end
+    -- Ped vollständig sperren: KI darf während des gesamten Services
+    -- keine neuen Tasks (z.B. Fahrzeug verlassen) zuweisen.
+    SetBlockingOfNonTemporaryEvents(activePed, true)
+    SetPedKeepTask(activePed, true)
+    SetPedIntoVehicle(activePed, veh, 0)
 
-    -- Sitzposition während Service stabil halten (verhindert Offsets/"schief sitzen")
-    local function stabilizeServiceSeats()
-        if veh == 0 or not DoesEntityExist(veh) then return end
-        if DoesEntityExist(activePed) and not IsPedInVehicle(activePed, veh, false) then
+    local function stabilize()
+        if DoesEntityExist(veh) and activePed and DoesEntityExist(activePed)
+            and not IsPedInVehicle(activePed, veh, false)
+        then
             SetPedIntoVehicle(activePed, veh, 0)
         end
-    end
-
-    -- Paar-Animation synchron auf Hure + Spieler
-    local function pair(hookerAnim, playerAnim, flag, doWait)
-        local t = GetAnimDuration(DICT, hookerAnim) * 1000
-        if t <= 0 then t = 1500 end
-        t = math.floor(t)
-        local dur = (flag == 1) and -1 or t   -- Loop = unendlich, Enter/Exit = feste Länge
-        stabilizeServiceSeats()
-        if DoesEntityExist(activePed) then
-            TaskPlayAnim(activePed, DICT, hookerAnim, 2.0, 2.0, dur, flag, 0.0, false, false, false)
-        end
-        TaskPlayAnim(player, DICT, playerAnim, 2.0, 2.0, dur, flag, 0.0, false, false, false)
-        if doWait then Wait(t) end
     end
 
     SendNUIMessage({ action = 'progress', duration = realDuration, label = svc.label })
@@ -1018,30 +975,27 @@ function runService(svc)
     hookerSay(activePed, 'serviceStart')
 
     if Config.VisibleService then
-        stabilizeServiceSeats()
+        stabilize()
         SetVehicleLights(veh, 1)
 
-        -- ── GTA-Style Kamera: schräg von hinten/oben über den Ped ──
-        activeCam = nil
         local camCfg = (Config.Cam and Config.Cam[scene]) or {
             pos = { x = -0.12, y = 0.10, z = 0.56 }, lookAt = { x = 0.32, y = 0.10, z = 0.42 }, fov = 46.0
         }
+
         local function placeCam()
             if not activeCam then return end
-            local p, l = camCfg.pos, camCfg.lookAt
+            local p, l   = camCfg.pos, camCfg.lookAt
             local camPos = GetOffsetFromEntityInWorldCoords(veh, p.x, p.y, p.z)
             local lookAt = GetOffsetFromEntityInWorldCoords(veh, l.x, l.y, l.z)
             SetCamCoord(activeCam, camPos.x, camPos.y, camPos.z)
             PointCamAtCoord(activeCam, lookAt.x, lookAt.y, lookAt.z)
         end
 
-        -- Spielt eine einmalige Übergangs-Animation (Enter/Exit) mit Steuerungs-
-        -- sperre und Kamera-Update pro Frame, damit kein abrupter Schnitt entsteht.
         local function playOnce(hookerAnim, playerAnim)
-            local t = math.max(math.floor(GetAnimDuration(DICT, hookerAnim) * 1000), 1500)
             if shouldAbortService() then return false end
-            stabilizeServiceSeats()
-            if DoesEntityExist(activePed) then
+            local t = math.max(math.floor(GetAnimDuration(DICT, hookerAnim) * 1000), 1500)
+            stabilize()
+            if activePed and DoesEntityExist(activePed) then
                 TaskPlayAnim(activePed, DICT, hookerAnim, 2.0, 2.0, t, 0, 0.0, false, false, false)
             end
             TaskPlayAnim(player, DICT, playerAnim, 2.0, 2.0, t, 0, 0.0, false, false, false)
@@ -1059,23 +1013,24 @@ function runService(svc)
             end
             return true
         end
+
         if Config.UseCinematicCam ~= false then
             activeCam = CreateCam('DEFAULT_SCRIPTED_CAMERA', true)
             placeCam()
             SetCamFov(activeCam, camCfg.fov or 46.0)
             SetCamActive(activeCam, true)
             RenderScriptCams(true, true, 600, true, true)
-            ShakeCam(activeCam, 'HAND_SHAKE', 0.12) -- dezentes Wackeln
+            ShakeCam(activeCam, 'HAND_SHAKE', 0.12)
         end
 
-        -- ── Enter-Animationen (GTA-Stil: Übergang in die Service-Position) ──
         if not playOnce(A.e1h, A.e1p) then releasePlayerLocks(true); return end
         if not playOnce(A.e2h, A.e2p) then releasePlayerLocks(true); return end
 
-        -- ── Loop-Animation ──
-        pair(A.lh, A.lp, 1, false)
+        if activePed and DoesEntityExist(activePed) then
+            TaskPlayAnim(activePed, DICT, A.lh, 2.0, 2.0, -1, 49, 0.0, false, false, false)
+        end
+        TaskPlayAnim(player, DICT, A.lp, 2.0, 2.0, -1, 49, 0.0, false, false, false)
 
-        -- ── Auto wackeln (nur Sex) ──
         serviceRocking = (scene == 'sex')
         if serviceRocking and Config.RockVehicle then
             CreateThread(function()
@@ -1086,25 +1041,21 @@ function runService(svc)
             end)
         end
 
-        -- ── Dauer + Sound + Steuerung sperren + Kamera nachführen ──
-        local SEG = 2500   -- ms pro Segment
+        local SEG = 2500
         for i = 1, (svc.loops or 6) do
             if shouldAbortService() then releasePlayerLocks(true); return end
-            if not DoesEntityExist(activePed) then break end
+            if not activePed or not DoesEntityExist(activePed) then break end
 
-            -- Anim-Dict geladen halten (Engine kann es streamen)
             if not HasAnimDictLoaded(DICT) then loadAnimDict(DICT) end
 
-            -- Animation JEDES Segment neu antriggern, damit die Engine sie
-            -- nicht nach ein paar Sekunden stoppt (das war der Abbruch-Bug)
-            stabilizeServiceSeats()
+            stabilize()
             TaskPlayAnim(activePed, DICT, A.lh, 2.0, 2.0, -1, 49, 0.0, false, false, false)
             TaskPlayAnim(player,    DICT, A.lp, 2.0, 2.0, -1, 49, 0.0, false, false, false)
 
-            -- Sound: GTA Ped-Speech (Stöhnen)
             if not IsAnySpeechPlaying(activePed) then
                 PlayPedAmbientSpeechNative(activePed, A.speech, 'SPEECH_PARAMS_FORCE_SHOUTED_CLEAR')
             end
+
             local segEnd = GetGameTimer() + SEG
             while GetGameTimer() < segEnd do
                 if shouldAbortService() then releasePlayerLocks(true); return end
@@ -1120,25 +1071,21 @@ function runService(svc)
         end
         serviceRocking = false
 
-        -- KeepTask lösen, damit die Exit-Animationen korrekt abspielen können
         SetPedKeepTask(player, false)
-        if DoesEntityExist(activePed) then SetPedKeepTask(activePed, false) end
+        if activePed and DoesEntityExist(activePed) then SetPedKeepTask(activePed, false) end
 
-        -- ── Exit-Animationen (GTA-Stil: sauber zurück in Sitzposition) ──
         if not playOnce(A.x1h, A.x1p) then releasePlayerLocks(true); return end
         if not playOnce(A.x2h, A.x2p) then releasePlayerLocks(true); return end
 
         SetVehicleLights(veh, 0)
-        stabilizeServiceSeats()
+        stabilize()
 
-        -- Animationen sauber abschließen (Sicherheits-Stop nach den Exit-Anims)
-        stopPlayerServiceAnimations(player)   -- nur Anim-Task; ClearPedTasks würde den Vehicle-Task stören und das Auto einfrieren
-        if DoesEntityExist(activePed) then
+        stopPlayerServiceAnimations(player)
+        if activePed and DoesEntityExist(activePed) then
             StopAnimTask(activePed, DICT, A.x2h, 4.0)
             ClearPedSecondaryTask(activePed)
         end
 
-        -- Kamera freigeben -> zurück zur normalen Gameplay-Kamera
         if activeCam then
             RenderScriptCams(false, true, 600, true, true)
             Wait(350)
@@ -1146,13 +1093,11 @@ function runService(svc)
             activeCam = nil
         end
 
-        -- Steuerung wieder komplett freigeben
         EnableAllControlActions(0)
     else
-        -- Fade-to-Black-Variante
         DoScreenFadeOut(800)
         Wait(900)
-        local secs = (svc.loops or 6) * 3
+        local secs    = (svc.loops or 6) * 3
         local elapsed = 0
         while elapsed < secs do
             if shouldAbortService() then releasePlayerLocks(false); return end
@@ -1165,133 +1110,67 @@ function runService(svc)
 
     if shouldAbortService() then releasePlayerLocks(false); return end
 
-    serviceFailSafeUntil = 0
+    serviceFailSafeUntil  = 0
     serviceAbortRequested = false
-    releasePlayerLocks(true)   -- forceClearTasks=true: Tasks vollständig zurücksetzen, Aussteigen-Taste freigeben
+    releasePlayerLocks(true)
     if Config.RestoreHealth then SetEntityHealth(player, GetEntityMaxHealth(player)) end
-    if Config.RestoreArmor then SetPedArmour(player, 100) end
+    if Config.RestoreArmor  then SetPedArmour(player, 100) end
     startPostServiceWatchdog(veh, activePed, 'service-end')
 
-    -- Hure steigt aus und geht
-    if DoesEntityExist(activePed) then
-        SetPedConfigFlag(activePed, 26, false)
-        SetBlockingOfNonTemporaryEvents(activePed, false)
-        SetPedKeepTask(activePed, false)
-        local v = GetVehiclePedIsIn(activePed, false)
-        -- Nach dem Exit-Anim-Cleanup verliert der Ped kurz seinen Vehicle-Handle,
-        -- obwohl er optisch noch im Service-Fahrzeug sitzt. Dann das bekannte
-        -- Service-Fahrzeug wiederverwenden, damit TaskLeaveVehicle zuverlässig greift.
-        if v == 0 and DoesEntityExist(veh) then
-            v = veh
-            dbg('[EXIT] Fallback auf Service-Fahrzeug:', v)
-        end
-        local pedDead = IsPedDeadOrDying(activePed, true)
-        dbg('[EXIT] Service-Ende: ped=', activePed, 'veh=', v, 'dead=', pedDead)
-        if v ~= 0 and not pedDead then TaskLeaveVehicle(activePed, v, 0) end
-        SetEntityAsNoLongerNeeded(activePed)
-        local toDelete = activePed
-        -- Warten bis die Ausstieg-Animation fertig ist, erst dann wandern
-        CreateThread(function()
-            dbg('[EXIT] Warte auf Fahrzeug-Ausstieg: ped=', toDelete, 'veh=', v)
-            local t0 = GetGameTimer()
-            while v ~= 0 and DoesEntityExist(toDelete) and not IsPedDeadOrDying(toDelete, true) and IsPedInVehicle(toDelete, v, false) and GetGameTimer() - t0 < 6000 do
-                Wait(200)
-            end
-            if DoesEntityExist(toDelete) then
-                if IsPedDeadOrDying(toDelete, true) then
-                    dbg('[EXIT] Ped ist tot – überspringe Wandern, lösche sofort.')
-                    DeleteEntity(toDelete)
-                    return
-                end
-                dbg('[EXIT] Ped draußen – starte Wandern.')
-                TaskWanderStandard(toDelete, 10.0, 10)
-            else
-                dbg('[EXIT] Ped existiert nicht mehr.')
-            end
-            SetTimeout(15000, function()
-                if DoesEntityExist(toDelete) then
-                    dbg('[EXIT] Timeout – lösche Ped.')
-                    DeleteEntity(toDelete)
-                end
-            end)
-        end)
-    end
+    local finishedPed = activePed
+    releasePedAfterService(finishedPed, veh)
 
-    hookerSay(activePed, 'pleased')
+    hookerSay(finishedPed, 'pleased')
     notify('~g~Service erledigt.~w~')
     lastService = GetGameTimer()
-    activePed = nil
-    targetSpot = nil
+    activePed   = nil
+    targetSpot  = nil
     setState('IDLE')
 end
+
 -- ════════════════════════════════════════════════════════════════
---  AUFRÄUMEN
+--  AUFRÄUMEN (Abbruch / Fehler)
 -- ════════════════════════════════════════════════════════════════
 function cleanupEscort(msg)
     local wasService = (state == 'SERVICE')
     local cleanupPed = activePed
+    local cleanupVeh = (cleanupPed and DoesEntityExist(cleanupPed))
+                        and GetVehiclePedIsIn(cleanupPed, false) or 0
+
     serviceAbortRequested = true
-    serviceFailSafeUntil = 0
+    serviceFailSafeUntil  = 0
     stopRideTalk()
     if msg then notify(msg) end
     if spotBlip then RemoveBlip(spotBlip); spotBlip = nil end
-    local cleanupVeh = 0
-    if activePed and DoesEntityExist(activePed) then
-        SetBlockingOfNonTemporaryEvents(activePed, false)
-        SetPedKeepTask(activePed, false)
-        cleanupVeh = GetVehiclePedIsIn(activePed, false)
-        local pedDead = IsPedDeadOrDying(activePed, true)
-        dbg('[CLEANUP] cleanupEscort: ped=', activePed, 'veh=', cleanupVeh, 'dead=', pedDead, 'msg=', msg)
-        if cleanupVeh ~= 0 and not pedDead then TaskLeaveVehicle(activePed, cleanupVeh, 0) end
-        SetEntityAsNoLongerNeeded(activePed)
-        local toDelete = activePed
-        local leaveVeh = cleanupVeh
-        -- Warten bis die Ausstieg-Animation fertig ist, erst dann wandern
-        CreateThread(function()
-            dbg('[CLEANUP] Warte auf Fahrzeug-Ausstieg: ped=', toDelete, 'veh=', leaveVeh)
-            local t0 = GetGameTimer()
-            while DoesEntityExist(toDelete) and not IsPedDeadOrDying(toDelete, true) and leaveVeh ~= 0 and IsPedInVehicle(toDelete, leaveVeh, false) and GetGameTimer() - t0 < 6000 do
-                Wait(200)
-            end
-            if DoesEntityExist(toDelete) then
-                if IsPedDeadOrDying(toDelete, true) then
-                    dbg('[CLEANUP] Ped ist tot – überspringe Wandern, lösche sofort.')
-                    DeleteEntity(toDelete)
-                    return
-                end
-                dbg('[CLEANUP] Ped draußen – starte Wandern.')
-                TaskWanderStandard(toDelete, 10.0, 10)
-            else
-                dbg('[CLEANUP] Ped existiert nicht mehr.')
-            end
-            SetTimeout(15000, function()
-                if DoesEntityExist(toDelete) then
-                    dbg('[CLEANUP] Timeout – lösche Ped.')
-                    DeleteEntity(toDelete)
-                end
-            end)
-        end)
+
+    if cleanupPed then
+        releasePedAfterService(cleanupPed, cleanupVeh ~= 0 and cleanupVeh or nil)
     end
-    releasePlayerLocks(state == 'SERVICE')
+
+    releasePlayerLocks(wasService)
+
     if wasService or isPlayerInServiceAnimation(PlayerPedId()) then
         startPostServiceWatchdog(cleanupVeh, cleanupPed, 'cleanup')
     else
         stopPostServiceWatchdog()
     end
-    activePed = nil
+
+    activePed  = nil
     targetSpot = nil
     setState('IDLE')
 end
 
+-- ════════════════════════════════════════════════════════════════
+--  SICHERHEITS-FALLBACK (Watchdog für verklemmte Zustände)
+-- ════════════════════════════════════════════════════════════════
 local function triggerEmergencyRecovery(msg)
-    dbg('Emergency recovery triggered:', msg or 'no message')
     releasePlayerLocks(true)
     cleanupEscort(msg or '~r~Sicherheits-Fallback ausgelöst.')
 end
 
 CreateThread(function()
     while true do
-        local now = GetGameTimer()
+        local now        = GetGameTimer()
         local recoverMsg = nil
 
         if state == 'MENU' and now - stateChangedAt > MENU_FAILSAFE_MS then
@@ -1337,7 +1216,9 @@ CreateThread(function()
     end
 end)
 
--- Polizei-Blip (optional)
+-- ════════════════════════════════════════════════════════════════
+--  NETZWERK-EVENTS
+-- ════════════════════════════════════════════════════════════════
 RegisterNetEvent('mtj_prostitution:policeBlip', function(coords)
     local blip = AddBlipForCoord(coords.x, coords.y, coords.z)
     SetBlipSprite(blip, 161)
@@ -1352,12 +1233,11 @@ RegisterNetEvent('mtj_prostitution:policeBlip', function(coords)
     end)
 end)
 
--- Sicheres Aufräumen beim Resource-Stop
 AddEventHandler('onResourceStop', function(res)
     if res ~= GetCurrentResourceName() then return end
     stopPostServiceWatchdog()
     serviceAbortRequested = true
-    serviceFailSafeUntil = 0
+    serviceFailSafeUntil  = 0
     clearPeds()
     if activePed and DoesEntityExist(activePed) then DeleteEntity(activePed) end
     if spotBlip then RemoveBlip(spotBlip) end
