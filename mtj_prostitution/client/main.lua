@@ -447,9 +447,10 @@ end
 -- ════════════════════════════════════════════════════════════════
 local function lockPedInSeat(ped)
     if not ped or ped == 0 or not DoesEntityExist(ped) then return end
-    SetBlockingOfNonTemporaryEvents(ped, true)
-    SetPedKeepTask(ped, true)
-    SetPedConfigFlag(ped, 26, true)
+    SetBlockingOfNonTemporaryEvents(ped, true)   -- KI-Events blockieren
+    SetPedKeepTask(ped, true)                    -- aktuellen Task einfrieren
+    SetPedConfigFlag(ped, 26, true)              -- Flag 26: verhindert, dass der Ped
+                                                 -- das Fahrzeug autonom wieder verlässt
 end
 
 -- ════════════════════════════════════════════════════════════════
