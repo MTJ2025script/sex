@@ -117,8 +117,8 @@ Config.PedModels = {
 }
 
 -- true = erkennt zusätzlich normale weibliche NPC-Peds (Standard-FiveM-Peds)
--- für E- bzw. Hupen-Prompt, auch wenn deren Modell nicht in Config.PedModels steht.
-Config.EnableStandardPedRecognition = true
+-- WICHTIG: auf false lassen! Nur Modelle aus Config.PedModels werden als Hure erkannt.
+Config.EnableStandardPedRecognition = false
 
 -- ════════════════════════════════════════════════════════════════
 --  SPAWN-ORTE (wo die Huren an der Straße stehen)
