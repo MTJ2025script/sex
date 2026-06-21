@@ -987,9 +987,6 @@ function runService(svc)
         if DoesEntityExist(activePed) and not IsPedInVehicle(activePed, veh, false) then
             SetPedIntoVehicle(activePed, veh, 0)
         end
-        if not IsPedInVehicle(player, veh, false) then
-            SetPedIntoVehicle(player, veh, -1)
-        end
     end
 
     -- Paar-Animation synchron auf Hure + Spieler
