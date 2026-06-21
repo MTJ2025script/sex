@@ -257,13 +257,11 @@ local function releasePlayerLocks(forceClearTasks)
     local player = PlayerPedId()
     -- Fahrzeugrütteln sofort stoppen
     serviceRocking = false
-    -- Cinematic-Kamera zerstören, falls noch aktiv
+    -- Cinematic-Kamera zerstören, falls noch aktiv; sonst nur Rendering deaktivieren
+    RenderScriptCams(false, false, 0, true, true)
     if activeCam then
-        RenderScriptCams(false, false, 0, true, true)
         DestroyCam(activeCam, true)
         activeCam = nil
-    else
-        RenderScriptCams(false, false, 0, true, true)
     end
     -- Schwarzblende aufheben, falls der Bildschirm noch ausgeblendet ist
     if IsScreenFadedOut() then
@@ -943,8 +941,8 @@ function runService(svc)
         end
 
         -- ── Enter-Animationen (GTA-Stil: Übergang in die Service-Position) ──
-        if not playOnce(A.e1h, A.e1p) then return end
-        if not playOnce(A.e2h, A.e2p) then return end
+        if not playOnce(A.e1h, A.e1p) then releasePlayerLocks(true); return end
+        if not playOnce(A.e2h, A.e2p) then releasePlayerLocks(true); return end
 
         -- ── Loop-Animation ──
         pair(A.lh, A.lp, 1, false)
@@ -963,7 +961,7 @@ function runService(svc)
         -- ── Dauer + Sound + Steuerung sperren + Kamera nachführen ──
         local SEG = 2500   -- ms pro Segment
         for i = 1, (svc.loops or 6) do
-            if shouldAbortService() then return end
+            if shouldAbortService() then releasePlayerLocks(true); return end
             if not DoesEntityExist(activePed) then break end
 
             -- Anim-Dict geladen halten (Engine kann es streamen)
@@ -985,7 +983,7 @@ function runService(svc)
             end
             local segEnd = GetGameTimer() + SEG
             while GetGameTimer() < segEnd do
-                if shouldAbortService() then return end
+                if shouldAbortService() then releasePlayerLocks(true); return end
                 if Config.LockControls then
                     DisableControlAction(0, 71, true)
                     DisableControlAction(0, 72, true)
@@ -1003,8 +1001,8 @@ function runService(svc)
         if DoesEntityExist(activePed) then SetPedKeepTask(activePed, false) end
 
         -- ── Exit-Animationen (GTA-Stil: sauber zurück in Sitzposition) ──
-        if not playOnce(A.x1h, A.x1p) then return end
-        if not playOnce(A.x2h, A.x2p) then return end
+        if not playOnce(A.x1h, A.x1p) then releasePlayerLocks(true); return end
+        if not playOnce(A.x2h, A.x2p) then releasePlayerLocks(true); return end
 
         SetVehicleLights(veh, 0)
 
@@ -1033,7 +1031,7 @@ function runService(svc)
         local secs = (svc.loops or 6) * 3
         local elapsed = 0
         while elapsed < secs do
-            if shouldAbortService() then return end
+            if shouldAbortService() then releasePlayerLocks(false); return end
             Wait(1000)
             elapsed = elapsed + 1
         end
@@ -1041,7 +1039,7 @@ function runService(svc)
         Wait(400)
     end
 
-    if shouldAbortService() then return end
+    if shouldAbortService() then releasePlayerLocks(false); return end
 
     serviceFailSafeUntil = 0
     serviceAbortRequested = false
