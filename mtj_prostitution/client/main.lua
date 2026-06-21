@@ -12,6 +12,8 @@ local lastApproachCall = 0    -- Throttle für Approach-Speech
 local targetSpot    = nil     -- vector3 der gewählten ruhigen Ecke
 local spotBlip      = nil
 
+local DEFAULT_RECRUIT_DISTANCE = 9.0
+
 -- Von externen Resourcen (z.B. npc_dashboard) registrierte Huren.
 -- Diese Peds werden NICHT von diesem Script gespawnt/gelöscht – nur angeworben.
 local externalPeds  = {}      -- [pedHandle] = true
@@ -246,6 +248,14 @@ local function loadAnimDict(dict)
     return HasAnimDictLoaded(dict)
 end
 
+local function getRecruitDistance()
+    return Config.RecruitDistance or DEFAULT_RECRUIT_DISTANCE
+end
+
+local function getRecruitDistanceOnFoot()
+    return Config.RecruitDistanceOnFoot or getRecruitDistance()
+end
+
 local function getDriverVehicle()
     local ped = PlayerPedId()
     if not IsPedInAnyVehicle(ped, false) then return nil end
@@ -336,7 +346,7 @@ CreateThread(function()
                     and not externalPeds[ped]
                 then
                     -- Nur Peds in der Nähe registrieren (Scan-Radius = max Erkennungsweite)
-                    local scanRadius = math.max(Config.RecruitDistance or 9.0, Config.RecruitDistanceOnFoot or 9.0) + 5.0
+                    local scanRadius = math.max(getRecruitDistance(), getRecruitDistanceOnFoot()) + 5.0
                     local pedPos = GetEntityCoords(ped)
                     if #(vector2(pedPos.x, pedPos.y) - vector2(myPos.x, myPos.y)) < scanRadius then
                         -- Nicht erneut eintragen wenn bereits in spawnedPeds
@@ -391,7 +401,7 @@ CreateThread(function()
                     end
                 end
 
-                if nearest and nearDist < Config.RecruitDistance then
+                if nearest and nearDist < getRecruitDistance() then
                     sleep = 0
                     local pc = GetEntityCoords(nearest)
                     -- Approach-Speech: sie ruft dem Spieler zu (alle 8s, nicht spammen)
@@ -451,7 +461,7 @@ CreateThread(function()
                     end
                 end
 
-                if nearest and nearDist < (Config.RecruitDistanceOnFoot or Config.RecruitDistance or 9.0) then
+                if nearest and nearDist < getRecruitDistanceOnFoot() then
                     sleep = 0
                     local pc = GetEntityCoords(nearest)
                     if not lastApproachCall or GetGameTimer() - lastApproachCall > 8000 then
