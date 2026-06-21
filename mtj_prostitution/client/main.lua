@@ -13,6 +13,26 @@ local targetSpot    = nil     -- vector3 der gewählten ruhigen Ecke
 local spotBlip      = nil
 
 local DEFAULT_RECRUIT_DISTANCE = 9.0
+local SERVICE_ANIM_DICT = 'mini@prostitutes@sexnorm_veh'
+local MENU_FAILSAFE_MS = 45000
+local RECRUIT_FAILSAFE_MS = 20000
+local FOLLOW_FAILSAFE_BUFFER_MS = 15000
+local SERVICE_FAILSAFE_BUFFER_MS = 30000
+local stateChangedAt = GetGameTimer()
+local serviceFailSafeUntil = 0
+local serviceAbortRequested = false
+local SERVICE_PLAYER_ANIMS = {
+    'proposition_to_BJ_p1_male',
+    'proposition_to_BJ_p2_male',
+    'BJ_loop_male',
+    'BJ_to_proposition_p1_male',
+    'BJ_to_proposition_p2_male',
+    'proposition_to_sex_p1_male',
+    'proposition_to_sex_p2_male',
+    'sex_loop_male',
+    'sex_to_proposition_p1_male',
+    'sex_to_proposition_p2_male',
+}
 
 -- Von externen Resourcen (z.B. npc_dashboard) registrierte Huren.
 -- Diese Peds werden NICHT von diesem Script gespawnt/gelöscht – nur angeworben.
@@ -186,6 +206,13 @@ local function dbg(...)
     if Config.Debug then print('[mtj_prostitution]', ...) end
 end
 
+local function setState(newState)
+    if state ~= newState then
+        state = newState
+        stateChangedAt = GetGameTimer()
+    end
+end
+
 local function notify(msg)
     BeginTextCommandThefeedPost('STRING')
     AddTextComponentSubstringPlayerName(msg)
@@ -212,6 +239,34 @@ local function DrawText3D(x, y, z, text)
     local factor = (#text) / 370
     DrawRect(0.0, 0.0125, 0.017 + factor, 0.03, 0, 0, 0, 150)
     ClearDrawOrigin()
+end
+
+local function isPlayerInServiceAnimation(player)
+    if not player or player == 0 then return false end
+    for _, anim in ipairs(SERVICE_PLAYER_ANIMS) do
+        if IsEntityPlayingAnim(player, SERVICE_ANIM_DICT, anim, 3) then
+            return true
+        end
+    end
+    return false
+end
+
+local function releasePlayerLocks(forceClearTasks)
+    local player = PlayerPedId()
+    SetNuiFocus(false, false)
+    SendNUIMessage({ action = 'hide' })
+    RenderScriptCams(false, false, 0, true, true)
+    EnableAllControlActions(0)
+    SetPlayerControl(PlayerId(), true, 0)
+    FreezeEntityPosition(player, false)
+    if forceClearTasks or isPlayerInServiceAnimation(player) then
+        ClearPedSecondaryTask(player)
+        ClearPedTasksImmediately(player)
+    end
+end
+
+local function shouldAbortService()
+    return serviceAbortRequested or state ~= 'SERVICE'
 end
 
 local function isNight()
@@ -464,7 +519,7 @@ CreateThread(function()
                                     pedBlips[nearIdx] = nil
                                 end
                             end
-                            state = 'RECRUITED'
+                            setState('RECRUITED')
                         end
                     end
                 end
@@ -543,7 +598,7 @@ CreateThread(function()
                                     pedBlips[nearIdx] = nil
                                 end
                             end
-                            state = 'RECRUITED_FOOT'
+                            setState('RECRUITED_FOOT')
                         end
                     end
                 end
@@ -558,8 +613,8 @@ end)
 -- ════════════════════════════════════════════════════════════════
 local function startRecruit()
     local veh = getDriverVehicle()
-    if not veh then state = 'IDLE'; activePed = nil; return end
-    if not DoesEntityExist(activePed) then state = 'IDLE'; activePed = nil; return end
+    if not veh then setState('IDLE'); activePed = nil; return end
+    if not DoesEntityExist(activePed) then setState('IDLE'); activePed = nil; return end
 
     -- Dashboard-Szenario/KeepTask lösen
     SetPedKeepTask(activePed, false)
@@ -576,7 +631,7 @@ local function startRecruit()
     while not IsPedInVehicle(activePed, veh, false) do
         Wait(300)
         if not DoesEntityExist(activePed) or not DoesEntityExist(veh) then
-            state = 'IDLE'; activePed = nil; return
+            setState('IDLE'); activePed = nil; return
         end
         if GetGameTimer() - t0 > 10000 then
             SetPedIntoVehicle(activePed, veh, 0)
@@ -587,14 +642,14 @@ local function startRecruit()
     notify('~g~Sie ist drin.~s~ Fahr zu einer ~y~abgelegenen Stelle~s~.')
     hookerSay(activePed, 'enter')
     startRideTalk()
-    state = 'RIDING'
+    setState('RIDING')
 end
 
 -- ════════════════════════════════════════════════════════════════
 --  FOLGE-MODUS (Fuß-Rekrutierung → gemeinsam zum Auto)
 -- ════════════════════════════════════════════════════════════════
 local function startFollowRecruit()
-    if not DoesEntityExist(activePed) then state = 'IDLE'; activePed = nil; return end
+    if not DoesEntityExist(activePed) then setState('IDLE'); activePed = nil; return end
 
     -- Szenario/KeepTask des Peds lösen
     SetPedKeepTask(activePed, false)
@@ -603,7 +658,7 @@ local function startFollowRecruit()
     SetBlockingOfNonTemporaryEvents(activePed, true)
 
     notify('~y~Sie folgt dir.~s~ Geh zu deinem ~y~Fahrzeug~s~.')
-    state = 'FOLLOWING'
+    setState('FOLLOWING')
 
     CreateThread(function()
         local t0       = GetGameTimer()
@@ -654,7 +709,7 @@ local function startFollowRecruit()
                 while not IsPedInVehicle(activePed, veh, false) do
                     Wait(300)
                     if not DoesEntityExist(activePed) or not DoesEntityExist(veh) then
-                        state = 'IDLE'; activePed = nil; return
+                        setState('IDLE'); activePed = nil; return
                     end
                     -- Spieler nicht mehr Fahrer dieses Fahrzeugs? -> Abbruch
                     if GetPedInVehicleSeat(veh, -1) ~= player then
@@ -670,7 +725,7 @@ local function startFollowRecruit()
                 notify('~g~Sie ist drin.~s~ Fahr zu einer ~y~abgelegenen Stelle~s~.')
                 hookerSay(activePed, 'ride')
                 startRideTalk()
-                state = 'RIDING'
+                setState('RIDING')
                 return
             end
 
@@ -730,7 +785,7 @@ end
 --  SERVICE-MENÜ (NUI)
 -- ════════════════════════════════════════════════════════════════
 function openServiceMenu()
-    state = 'MENU'
+    setState('MENU')
     SetNuiFocus(true, true)
     SendNUIMessage({ action = 'openMenu', services = Config.Services })
 end
@@ -761,7 +816,8 @@ end)
 --  SERVICE (Fade + Fortschritt, dezent / Fade-to-Black)
 -- ════════════════════════════════════════════════════════════════
 function runService(svc)
-    state = 'SERVICE'
+    setState('SERVICE')
+    serviceAbortRequested = false
     if spotBlip then RemoveBlip(spotBlip); spotBlip = nil end
 
     if Config.PoliceAlertChance > 0.0 and math.random() < Config.PoliceAlertChance then
@@ -771,8 +827,14 @@ function runService(svc)
     local player = PlayerPedId()
     local veh = GetVehiclePedIsIn(player, false)
     local scene = svc.scene or 'sex'
-    local DICT = 'mini@prostitutes@sexnorm_veh'
+    local DICT = SERVICE_ANIM_DICT
     local playerFemale = (GetEntityModel(player) == GetHashKey('mp_f_freemode_01'))
+    local realDuration = (svc.loops or 6) * 2.5
+    serviceFailSafeUntil = GetGameTimer() + math.max(math.floor(realDuration * 1000) + SERVICE_FAILSAFE_BUFFER_MS, 45000)
+
+    if veh == 0 or not DoesEntityExist(veh) or not DoesEntityExist(activePed) then
+        return cleanupEscort('~r~Vorgang abgebrochen.')
+    end
 
     -- Echte GTA-Animationen je nach Service (Enter -> Loop -> Exit)
     local A
@@ -809,7 +871,6 @@ function runService(svc)
         if doWait then Wait(t) end
     end
 
-    local realDuration = (svc.loops or 6) * 2.5
     SendNUIMessage({ action = 'progress', duration = realDuration, label = svc.label })
     stopRideTalk()
     hookerSay(activePed, 'serviceStart')
@@ -838,12 +899,14 @@ function runService(svc)
         -- sperre und Kamera-Update pro Frame, damit kein abrupter Schnitt entsteht.
         local function playOnce(hookerAnim, playerAnim)
             local t = math.max(math.floor(GetAnimDuration(DICT, hookerAnim) * 1000), 1500)
+            if shouldAbortService() then return false end
             if DoesEntityExist(activePed) then
                 TaskPlayAnim(activePed, DICT, hookerAnim, 2.0, 2.0, t, 0, 0.0, false, false, false)
             end
             TaskPlayAnim(player, DICT, playerAnim, 2.0, 2.0, t, 0, 0.0, false, false, false)
             local endTime = GetGameTimer() + t
             while GetGameTimer() < endTime do
+                if shouldAbortService() then return false end
                 if Config.LockControls then
                     DisableControlAction(0, 71, true)
                     DisableControlAction(0, 72, true)
@@ -853,6 +916,7 @@ function runService(svc)
                 if cam then placeCam() end
                 Wait(0)
             end
+            return true
         end
         if Config.UseCinematicCam ~= false then
             cam = CreateCam('DEFAULT_SCRIPTED_CAMERA', true)
@@ -864,8 +928,8 @@ function runService(svc)
         end
 
         -- ── Enter-Animationen (GTA-Stil: Übergang in die Service-Position) ──
-        playOnce(A.e1h, A.e1p)
-        playOnce(A.e2h, A.e2p)
+        if not playOnce(A.e1h, A.e1p) then return end
+        if not playOnce(A.e2h, A.e2p) then return end
 
         -- ── Loop-Animation ──
         pair(A.lh, A.lp, 1, false)
@@ -884,6 +948,7 @@ function runService(svc)
         -- ── Dauer + Sound + Steuerung sperren + Kamera nachführen ──
         local SEG = 2500   -- ms pro Segment
         for i = 1, (svc.loops or 6) do
+            if shouldAbortService() then return end
             if not DoesEntityExist(activePed) then break end
 
             -- Anim-Dict geladen halten (Engine kann es streamen)
@@ -905,6 +970,7 @@ function runService(svc)
             end
             local segEnd = GetGameTimer() + SEG
             while GetGameTimer() < segEnd do
+                if shouldAbortService() then return end
                 if Config.LockControls then
                     DisableControlAction(0, 71, true)
                     DisableControlAction(0, 72, true)
@@ -922,8 +988,8 @@ function runService(svc)
         if DoesEntityExist(activePed) then SetPedKeepTask(activePed, false) end
 
         -- ── Exit-Animationen (GTA-Stil: sauber zurück in Sitzposition) ──
-        playOnce(A.x1h, A.x1p)
-        playOnce(A.x2h, A.x2p)
+        if not playOnce(A.x1h, A.x1p) then return end
+        if not playOnce(A.x2h, A.x2p) then return end
 
         SetVehicleLights(veh, 0)
 
@@ -951,15 +1017,20 @@ function runService(svc)
         Wait(900)
         local secs = (svc.loops or 6) * 3
         local elapsed = 0
-        while elapsed < secs do Wait(1000); elapsed = elapsed + 1 end
+        while elapsed < secs do
+            if shouldAbortService() then return end
+            Wait(1000)
+            elapsed = elapsed + 1
+        end
         DoScreenFadeIn(800)
         Wait(400)
     end
 
-    SendNUIMessage({ action = 'hide' })
-    SetNuiFocus(false, false)
-    EnableAllControlActions(0)
-    RenderScriptCams(false, false, 0, true, true)  -- Sicherheits-Freigabe der Kamera
+    if shouldAbortService() then return end
+
+    serviceFailSafeUntil = 0
+    serviceAbortRequested = false
+    releasePlayerLocks(false)
     if Config.RestoreHealth then SetEntityHealth(player, GetEntityMaxHealth(player)) end
     if Config.RestoreArmor then SetPedArmour(player, 100) end
 
@@ -991,12 +1062,14 @@ function runService(svc)
     lastService = GetGameTimer()
     activePed = nil
     targetSpot = nil
-    state = 'IDLE'
+    setState('IDLE')
 end
 -- ════════════════════════════════════════════════════════════════
 --  AUFRÄUMEN
 -- ════════════════════════════════════════════════════════════════
 function cleanupEscort(msg)
+    serviceAbortRequested = true
+    serviceFailSafeUntil = 0
     stopRideTalk()
     if msg then notify(msg) end
     if spotBlip then RemoveBlip(spotBlip); spotBlip = nil end
@@ -1021,14 +1094,47 @@ function cleanupEscort(msg)
             end)
         end)
     end
-    SetNuiFocus(false, false)
-    SendNUIMessage({ action = 'hide' })
-    RenderScriptCams(false, false, 0, true, true)
-    EnableAllControlActions(0)
+    releasePlayerLocks(state == 'SERVICE')
     activePed = nil
     targetSpot = nil
-    state = 'IDLE'
+    setState('IDLE')
 end
+
+local function triggerEmergencyRecovery(msg)
+    dbg('Emergency recovery triggered:', msg or 'no message')
+    releasePlayerLocks(true)
+    cleanupEscort(msg or '~r~Sicherheits-Fallback ausgelöst.')
+end
+
+CreateThread(function()
+    while true do
+        local now = GetGameTimer()
+        local recoverMsg = nil
+
+        if state == 'MENU' and now - stateChangedAt > MENU_FAILSAFE_MS then
+            recoverMsg = '~r~Fallback: Menü wurde sicher beendet.'
+        elseif (state == 'RECRUITED' or state == 'RECRUITED_FOOT') and now - stateChangedAt > RECRUIT_FAILSAFE_MS then
+            recoverMsg = '~r~Fallback: Vorgang wurde sicher zurückgesetzt.'
+        elseif state == 'FOLLOWING' and now - stateChangedAt > ((Config.FollowRecruitTimeoutMs or 60000) + FOLLOW_FAILSAFE_BUFFER_MS) then
+            recoverMsg = '~r~Fallback: Folgen wurde sicher abgebrochen.'
+        elseif state == 'SERVICE' and serviceFailSafeUntil > 0 and now > serviceFailSafeUntil then
+            recoverMsg = '~r~Fallback: Service wurde sicher beendet.'
+        elseif state == 'IDLE' and isPlayerInServiceAnimation(PlayerPedId()) then
+            recoverMsg = '~r~Fallback: Spielerstatus wurde freigegeben.'
+        end
+
+        if recoverMsg then
+            triggerEmergencyRecovery(recoverMsg)
+            Wait(1000)
+        else
+            Wait(500)
+        end
+    end
+end)
+
+RegisterCommand('sexreset', function()
+    triggerEmergencyRecovery('~g~Fallback ausgeführt. Du bist wieder frei.')
+end, false)
 
 -- ════════════════════════════════════════════════════════════════
 --  HAUPT-LOOP (State Machine)
@@ -1066,9 +1172,10 @@ end)
 -- Sicheres Aufräumen beim Resource-Stop
 AddEventHandler('onResourceStop', function(res)
     if res ~= GetCurrentResourceName() then return end
+    serviceAbortRequested = true
+    serviceFailSafeUntil = 0
     clearPeds()
     if activePed and DoesEntityExist(activePed) then DeleteEntity(activePed) end
     if spotBlip then RemoveBlip(spotBlip) end
-    RenderScriptCams(false, false, 0, false, false)
-    SetNuiFocus(false, false)
+    releasePlayerLocks(true)
 end)
