@@ -982,12 +982,23 @@ function runService(svc)
 
     loadAnimDict(DICT)
 
+    -- Sitzposition während Service stabil halten (verhindert Offsets/"schief sitzen")
+    local function stabilizeServiceSeats()
+        if DoesEntityExist(activePed) and not IsPedInVehicle(activePed, veh, false) then
+            SetPedIntoVehicle(activePed, veh, 0)
+        end
+        if not IsPedInVehicle(player, veh, false) then
+            SetPedIntoVehicle(player, veh, -1)
+        end
+    end
+
     -- Paar-Animation synchron auf Hure + Spieler
     local function pair(hookerAnim, playerAnim, flag, doWait)
         local t = GetAnimDuration(DICT, hookerAnim) * 1000
         if t <= 0 then t = 1500 end
         t = math.floor(t)
         local dur = (flag == 1) and -1 or t   -- Loop = unendlich, Enter/Exit = feste Länge
+        stabilizeServiceSeats()
         if DoesEntityExist(activePed) then
             TaskPlayAnim(activePed, DICT, hookerAnim, 2.0, 2.0, dur, flag, 0.0, false, false, false)
         end
@@ -1000,9 +1011,7 @@ function runService(svc)
     hookerSay(activePed, 'serviceStart')
 
     if Config.VisibleService then
-        if DoesEntityExist(activePed) and not IsPedInVehicle(activePed, veh, false) then
-            SetPedIntoVehicle(activePed, veh, 0)
-        end
+        stabilizeServiceSeats()
         SetVehicleLights(veh, 1)
 
         -- ── GTA-Style Kamera: schräg von hinten/oben über den Ped ──
@@ -1024,6 +1033,7 @@ function runService(svc)
         local function playOnce(hookerAnim, playerAnim)
             local t = math.max(math.floor(GetAnimDuration(DICT, hookerAnim) * 1000), 1500)
             if shouldAbortService() then return false end
+            stabilizeServiceSeats()
             if DoesEntityExist(activePed) then
                 TaskPlayAnim(activePed, DICT, hookerAnim, 2.0, 2.0, t, 0, 0.0, false, false, false)
             end
@@ -1080,13 +1090,9 @@ function runService(svc)
 
             -- Animation JEDES Segment neu antriggern, damit die Engine sie
             -- nicht nach ein paar Sekunden stoppt (das war der Abbruch-Bug)
+            stabilizeServiceSeats()
             TaskPlayAnim(activePed, DICT, A.lh, 2.0, 2.0, -1, 49, 0.0, false, false, false)
             TaskPlayAnim(player,    DICT, A.lp, 2.0, 2.0, -1, 49, 0.0, false, false, false)
-
-            -- Falls sie draußen steht: still zurücksetzen (kein TaskClear!)
-            if not IsPedInVehicle(activePed, veh, false) then
-                SetPedIntoVehicle(activePed, veh, 0)
-            end
 
             -- Sound: GTA Ped-Speech (Stöhnen)
             if not IsAnySpeechPlaying(activePed) then
@@ -1116,6 +1122,7 @@ function runService(svc)
         if not playOnce(A.x2h, A.x2p) then releasePlayerLocks(true); return end
 
         SetVehicleLights(veh, 0)
+        stabilizeServiceSeats()
 
         -- Animationen sauber abschließen (Sicherheits-Stop nach den Exit-Anims)
         stopPlayerServiceAnimations(player)   -- nur Anim-Task; ClearPedTasks würde den Vehicle-Task stören und das Auto einfrieren
