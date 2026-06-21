@@ -1056,6 +1056,9 @@ function runService(svc)
         SetPedConfigFlag(activePed, 26, false)
         SetBlockingOfNonTemporaryEvents(activePed, false)
         local v = GetVehiclePedIsIn(activePed, false)
+        -- Nach dem Exit-Anim-Cleanup verliert der Ped kurz seinen Vehicle-Handle,
+        -- obwohl er optisch noch im Service-Fahrzeug sitzt. Dann das bekannte
+        -- Service-Fahrzeug wiederverwenden, damit TaskLeaveVehicle zuverlässig greift.
         if v == 0 and DoesEntityExist(veh) then
             v = veh
             dbg('[EXIT] Fallback auf Service-Fahrzeug:', v)
