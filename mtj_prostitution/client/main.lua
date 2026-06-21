@@ -1056,20 +1056,34 @@ function runService(svc)
         SetPedConfigFlag(activePed, 26, false)
         SetBlockingOfNonTemporaryEvents(activePed, false)
         local v = GetVehiclePedIsIn(activePed, false)
-        if v ~= 0 then TaskLeaveVehicle(activePed, v, 0) end
+        local pedDead = IsPedDeadOrDying(activePed, true)
+        dbg('[EXIT] Service-Ende: ped=', activePed, 'veh=', v, 'dead=', pedDead)
+        if v ~= 0 and not pedDead then TaskLeaveVehicle(activePed, v, 0) end
         SetEntityAsNoLongerNeeded(activePed)
         local toDelete = activePed
         -- Warten bis die Ausstieg-Animation fertig ist, erst dann wandern
         CreateThread(function()
+            dbg('[EXIT] Warte auf Fahrzeug-Ausstieg: ped=', toDelete, 'veh=', v)
             local t0 = GetGameTimer()
-            while v ~= 0 and DoesEntityExist(toDelete) and IsPedInVehicle(toDelete, v, false) and GetGameTimer() - t0 < 6000 do
+            while v ~= 0 and DoesEntityExist(toDelete) and not IsPedDeadOrDying(toDelete, true) and IsPedInVehicle(toDelete, v, false) and GetGameTimer() - t0 < 6000 do
                 Wait(200)
             end
             if DoesEntityExist(toDelete) then
+                if IsPedDeadOrDying(toDelete, true) then
+                    dbg('[EXIT] Ped ist tot – überspringe Wandern, lösche sofort.')
+                    DeleteEntity(toDelete)
+                    return
+                end
+                dbg('[EXIT] Ped draußen – starte Wandern.')
                 TaskWanderStandard(toDelete, 10.0, 10)
+            else
+                dbg('[EXIT] Ped existiert nicht mehr.')
             end
             SetTimeout(15000, function()
-                if DoesEntityExist(toDelete) then DeleteEntity(toDelete) end
+                if DoesEntityExist(toDelete) then
+                    dbg('[EXIT] Timeout – lösche Ped.')
+                    DeleteEntity(toDelete)
+                end
             end)
         end)
     end
@@ -1093,21 +1107,35 @@ function cleanupEscort(msg)
     if activePed and DoesEntityExist(activePed) then
         SetBlockingOfNonTemporaryEvents(activePed, false)
         local veh = GetVehiclePedIsIn(activePed, false)
-        if veh ~= 0 then TaskLeaveVehicle(activePed, veh, 0) end
+        local pedDead = IsPedDeadOrDying(activePed, true)
+        dbg('[CLEANUP] cleanupEscort: ped=', activePed, 'veh=', veh, 'dead=', pedDead, 'msg=', msg)
+        if veh ~= 0 and not pedDead then TaskLeaveVehicle(activePed, veh, 0) end
         SetEntityAsNoLongerNeeded(activePed)
         local toDelete = activePed
         local leaveVeh = veh
         -- Warten bis die Ausstieg-Animation fertig ist, erst dann wandern
         CreateThread(function()
+            dbg('[CLEANUP] Warte auf Fahrzeug-Ausstieg: ped=', toDelete, 'veh=', leaveVeh)
             local t0 = GetGameTimer()
-            while DoesEntityExist(toDelete) and leaveVeh ~= 0 and IsPedInVehicle(toDelete, leaveVeh, false) and GetGameTimer() - t0 < 6000 do
+            while DoesEntityExist(toDelete) and not IsPedDeadOrDying(toDelete, true) and leaveVeh ~= 0 and IsPedInVehicle(toDelete, leaveVeh, false) and GetGameTimer() - t0 < 6000 do
                 Wait(200)
             end
             if DoesEntityExist(toDelete) then
+                if IsPedDeadOrDying(toDelete, true) then
+                    dbg('[CLEANUP] Ped ist tot – überspringe Wandern, lösche sofort.')
+                    DeleteEntity(toDelete)
+                    return
+                end
+                dbg('[CLEANUP] Ped draußen – starte Wandern.')
                 TaskWanderStandard(toDelete, 10.0, 10)
+            else
+                dbg('[CLEANUP] Ped existiert nicht mehr.')
             end
             SetTimeout(15000, function()
-                if DoesEntityExist(toDelete) then DeleteEntity(toDelete) end
+                if DoesEntityExist(toDelete) then
+                    dbg('[CLEANUP] Timeout – lösche Ped.')
+                    DeleteEntity(toDelete)
+                end
             end)
         end)
     end
