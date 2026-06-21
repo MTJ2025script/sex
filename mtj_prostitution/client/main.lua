@@ -1008,10 +1008,10 @@ function runService(svc)
 
         -- Animationen sauber abschließen (Sicherheits-Stop nach den Exit-Anims)
         StopAnimTask(player, DICT, A.x2p, 4.0)
-        ClearPedTasks(player)
+        ClearPedTasksImmediately(player)
         if DoesEntityExist(activePed) then
             StopAnimTask(activePed, DICT, A.x2h, 4.0)
-            ClearPedTasks(activePed)
+            ClearPedTasksImmediately(activePed)
         end
 
         -- Kamera freigeben -> zurück zur normalen Gameplay-Kamera
@@ -1043,7 +1043,7 @@ function runService(svc)
 
     serviceFailSafeUntil = 0
     serviceAbortRequested = false
-    releasePlayerLocks(false)
+    releasePlayerLocks(true)
     if Config.RestoreHealth then SetEntityHealth(player, GetEntityMaxHealth(player)) end
     if Config.RestoreArmor then SetPedArmour(player, 100) end
 
