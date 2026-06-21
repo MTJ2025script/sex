@@ -325,7 +325,7 @@ end)
 -- ════════════════════════════════════════════════════════════════
 CreateThread(function()
     while true do
-        if isNight() then
+        if isServiceTime() then
             local me = PlayerPedId()
             local myPos = GetEntityCoords(me)
             for _, ped in ipairs(GetGamePool('CPed')) do
@@ -338,7 +338,7 @@ CreateThread(function()
                     and not externalPeds[ped]
                 then
                     -- Nur Peds in der Nähe registrieren (Scan-Radius = max Erkennungsweite)
-                    local scanRadius = math.max(Config.RecruitDistance or 9.0, Config.RecruitDistanceOnFoot or 5.0) + 5.0
+                    local scanRadius = math.max(Config.RecruitDistance or 9.0, Config.RecruitDistanceOnFoot or 9.0) + 5.0
                     if #(GetEntityCoords(ped) - myPos) < scanRadius then
                         -- Nicht erneut eintragen wenn bereits in spawnedPeds
                         local inSpawned = false
@@ -434,7 +434,7 @@ CreateThread(function()
                 for i, ped in pairs(spawnedPeds) do
                     if DoesEntityExist(ped) and not IsPedDeadOrDying(ped, true) then
                         local pc = GetEntityCoords(ped)
-                        local d = #(pp - pc)
+                        local d = #(vector2(pp.x, pp.y) - vector2(pc.x, pc.y))
                         if d < nearDist then
                             nearDist, nearest, nearIdx, nearIsExternal = d, ped, i, false
                         end
@@ -443,7 +443,7 @@ CreateThread(function()
                 for ped in pairs(externalPeds) do
                     if DoesEntityExist(ped) and not IsPedDeadOrDying(ped, true) then
                         local pc = GetEntityCoords(ped)
-                        local d = #(pp - pc)
+                        local d = #(vector2(pp.x, pp.y) - vector2(pc.x, pc.y))
                         if d < nearDist then
                             nearDist, nearest, nearIdx, nearIsExternal = d, ped, nil, true
                         end
