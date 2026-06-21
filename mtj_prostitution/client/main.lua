@@ -285,9 +285,12 @@ local function releasePlayerLocks(forceClearTasks)
     FreezeEntityPosition(player, false)
     if forceClearTasks or isPlayerInServiceAnimation(player) then
         stopPlayerServiceAnimations(player)
-        -- ClearPedTasksImmediately würde den Spieler aus dem Fahrzeug werfen;
-        -- nur aufrufen wenn er NICHT im Auto sitzt
-        if not IsPedInAnyVehicle(player, false) then
+        if IsPedInAnyVehicle(player, false) then
+            -- ClearPedTasksImmediately würde den Spieler aus dem Fahrzeug werfen;
+            -- ClearPedTasks (nicht-sofort) räumt den primären Task-Slot auf
+            -- ohne Physik-Probleme -> gibt die Aussteigen-Taste frei
+            ClearPedTasks(player)
+        else
             ClearPedTasksImmediately(player)
         end
     end
@@ -1135,7 +1138,7 @@ function runService(svc)
 
     serviceFailSafeUntil = 0
     serviceAbortRequested = false
-    releasePlayerLocks(false)   -- Anims bereits über StopAnimTask+ClearPedSecondaryTask beendet; kein Force-Clear nötig
+    releasePlayerLocks(true)   -- forceClearTasks=true: Tasks vollständig zurücksetzen, Aussteigen-Taste freigeben
     if Config.RestoreHealth then SetEntityHealth(player, GetEntityMaxHealth(player)) end
     if Config.RestoreArmor then SetPedArmour(player, 100) end
     startPostServiceWatchdog(veh, activePed, 'service-end')
