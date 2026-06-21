@@ -26,6 +26,9 @@ Config.ServiceHours = {
 -- (2D-Distanz vom AUTO, Höhe wird ignoriert -> Straße zu Gehweg funktioniert)
 Config.RecruitDistance = 9.0
 
+-- Reichweite, in der eine Hure zu Fuß angesprochen werden kann (3D-Distanz)
+Config.RecruitDistanceOnFoot = 5.0
+
 -- Karten-Blips für die Huren anzeigen (damit du die ECHTEN findest)
 Config.ShowBlips = true
 
