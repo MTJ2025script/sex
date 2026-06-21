@@ -274,7 +274,11 @@ local function releasePlayerLocks(forceClearTasks)
     FreezeEntityPosition(player, false)
     if forceClearTasks or isPlayerInServiceAnimation(player) then
         ClearPedSecondaryTask(player)
-        ClearPedTasksImmediately(player)
+        -- ClearPedTasksImmediately würde den Spieler aus dem Fahrzeug werfen;
+        -- nur aufrufen wenn er NICHT im Auto sitzt
+        if not IsPedInAnyVehicle(player, false) then
+            ClearPedTasksImmediately(player)
+        end
     end
 end
 
@@ -1008,7 +1012,7 @@ function runService(svc)
 
         -- Animationen sauber abschließen (Sicherheits-Stop nach den Exit-Anims)
         StopAnimTask(player, DICT, A.x2p, 4.0)
-        ClearPedTasksImmediately(player)
+        ClearPedTasks(player)
         if DoesEntityExist(activePed) then
             StopAnimTask(activePed, DICT, A.x2h, 4.0)
             ClearPedTasksImmediately(activePed)

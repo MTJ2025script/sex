@@ -94,11 +94,11 @@ Config.LockControls   = true   -- Fahrsteuerung während Service sperren
 --   x = rechts(+) / links(-)   y = vorne(+) / hinten(-)   z = oben(+) / unten(-)
 --   fov: kleiner = näher rangezoomt
 Config.Cam = {
-    -- Blowjob: Kamera von der Rücksitzbank (rechts hinten) auf den Fahrerplatz
+    -- Blowjob: Kamera von Ecke Windschutzscheibe (Beifahrerseite) auf Fahrersitz
     blowjob = {
-        pos    = { x = 0.35, y = -0.9, z = 0.65 },
-        lookAt = { x = -0.35, y = 0.25, z = 0.45 },
-        fov    = 55.0,
+        pos    = { x = 0.45, y = 1.1, z = 0.72 },
+        lookAt = { x = -0.35, y = 0.0, z = 0.42 },
+        fov    = 50.0,
     },
     -- Sex: identisch - Rücksitzbank auf Fahrerplatz
     sex = {
