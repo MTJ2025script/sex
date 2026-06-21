@@ -66,8 +66,7 @@ Config.Account   = 'money' -- 'money' = Bargeld | 'bank'
 -- image = Foto im Ordner html/img/  (einfach austauschen, Name gleich lassen)
 Config.Services = {
     { label = 'Blowjob',       price = 100, scene = 'blowjob', loops = 12, health = 25,  image = 'service1.png' },
-    { label = 'Sex',           price = 250, scene = 'sex',     loops = 20, health = 50,  image = 'service2.png' },
-    { label = 'Premium (Sex)', price = 500, scene = 'sex',     loops = 30, health = 100, image = 'service3.png' },
+    { label = 'Normal',        price = 250, scene = 'sex',     loops = 20, health = 50,  image = 'service2.png' },
 }
 
 -- Health/Armor wie in GTA wieder auffüllen?

@@ -22,7 +22,8 @@ local externalPeds  = {}      -- [pedHandle] = true
 -- Synchron beim Script-Load befüllt, damit der Pool-Scan vom ersten Frame an korrekt arbeitet.
 local hookerModelHashes = {}
 for _, model in ipairs(Config.PedModels) do
-    hookerModelHashes[GetHashKey(model)] = true
+    local hash = (type(model) == 'number') and model or GetHashKey(model)
+    hookerModelHashes[hash] = true
 end
 
 -- Export: andere Resourcen melden ihre Huren-Peds hier an, damit sie
@@ -458,6 +459,28 @@ CreateThread(function()
                         end
                     else
                         externalPeds[ped] = nil
+                    end
+                end
+
+                -- Fallback: nicht registrierte Hooker-Peds in der Nähe direkt erkennen (zu Fuß)
+                if not nearest then
+                    local me = PlayerPedId()
+                    local scanRadius = getRecruitDistanceOnFoot() + 5.0
+                    for _, ped in ipairs(GetGamePool('CPed')) do
+                        if ped ~= me
+                            and ped ~= activePed
+                            and DoesEntityExist(ped)
+                            and not IsPedDeadOrDying(ped, true)
+                            and not IsPedAPlayer(ped)
+                            and hookerModelHashes[GetEntityModel(ped)]
+                        then
+                            local pc = GetEntityCoords(ped)
+                            local d = #(vector2(pp.x, pp.y) - vector2(pc.x, pc.y))
+                            if d < nearDist and d < scanRadius then
+                                nearDist, nearest, nearIdx, nearIsExternal = d, ped, nil, true
+                                externalPeds[ped] = true
+                            end
+                        end
                     end
                 end
 
