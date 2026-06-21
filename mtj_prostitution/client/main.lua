@@ -441,7 +441,7 @@ CreateThread(function()
                     -- Approach-Speech: sie ruft dem Spieler zu (alle 8s, nicht spammen)
                     if not lastApproachCall or GetGameTimer() - lastApproachCall > 8000 then
                         lastApproachCall = GetGameTimer()
-                        hookerSay(nearest, 'approachFoot')
+                        hookerSay(nearest, 'approach')
                     end
                     if Config.NoRecruitWhenWanted and GetPlayerWantedLevel(PlayerId()) > 0 then
                         -- Sie steigt nicht ein solange du gesucht wirst (GTA-Style)
@@ -524,7 +524,7 @@ CreateThread(function()
                     local pc = GetEntityCoords(nearest)
                     if not lastApproachCall or GetGameTimer() - lastApproachCall > 8000 then
                         lastApproachCall = GetGameTimer()
-                        hookerSay(nearest, 'approach')
+                        hookerSay(nearest, 'approachFoot')
                     end
                     if Config.NoRecruitWhenWanted and GetPlayerWantedLevel(PlayerId()) > 0 then
                         helpText('Sie kommt nicht mit, solange die ~r~Cops~s~ hinter dir her sind.')
