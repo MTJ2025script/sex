@@ -590,13 +590,15 @@ CreateThread(function()
 
                 for i, ped in pairs(spawnedPeds) do
                     if DoesEntityExist(ped) and not IsPedDeadOrDying(ped, true) then
-                        local d = #(vector2(vp.x, vp.y) - vector2(GetEntityCoords(ped).x, GetEntityCoords(ped).y))
+                        local pc = GetEntityCoords(ped)
+                        local d  = #(vector2(vp.x, vp.y) - vector2(pc.x, pc.y))
                         if d < nearDist then nearDist, nearest, nearIdx, nearIsExternal = d, ped, i, false end
                     end
                 end
                 for ped in pairs(externalPeds) do
                     if DoesEntityExist(ped) and not IsPedDeadOrDying(ped, true) then
-                        local d = #(vector2(vp.x, vp.y) - vector2(GetEntityCoords(ped).x, GetEntityCoords(ped).y))
+                        local pc = GetEntityCoords(ped)
+                        local d  = #(vector2(vp.x, vp.y) - vector2(pc.x, pc.y))
                         if d < nearDist then nearDist, nearest, nearIdx, nearIsExternal = d, ped, nil, true end
                     else
                         externalPeds[ped] = nil
@@ -642,13 +644,15 @@ CreateThread(function()
 
                 for i, ped in pairs(spawnedPeds) do
                     if DoesEntityExist(ped) and not IsPedDeadOrDying(ped, true) then
-                        local d = #(vector2(pp.x, pp.y) - vector2(GetEntityCoords(ped).x, GetEntityCoords(ped).y))
+                        local pc = GetEntityCoords(ped)
+                        local d  = #(vector2(pp.x, pp.y) - vector2(pc.x, pc.y))
                         if d < nearDist then nearDist, nearest, nearIdx, nearIsExternal = d, ped, i, false end
                     end
                 end
                 for ped in pairs(externalPeds) do
                     if DoesEntityExist(ped) and not IsPedDeadOrDying(ped, true) then
-                        local d = #(vector2(pp.x, pp.y) - vector2(GetEntityCoords(ped).x, GetEntityCoords(ped).y))
+                        local pc = GetEntityCoords(ped)
+                        local d  = #(vector2(pp.x, pp.y) - vector2(pc.x, pc.y))
                         if d < nearDist then nearDist, nearest, nearIdx, nearIsExternal = d, ped, nil, true end
                     else
                         externalPeds[ped] = nil
@@ -663,7 +667,8 @@ CreateThread(function()
                             and not IsPedDeadOrDying(ped, true)
                             and isRecognizedHookerPed(ped)
                         then
-                            local d = #(vector2(pp.x, pp.y) - vector2(GetEntityCoords(ped).x, GetEntityCoords(ped).y))
+                            local pc = GetEntityCoords(ped)
+                            local d  = #(vector2(pp.x, pp.y) - vector2(pc.x, pc.y))
                             if d < nearDist then
                                 nearDist, nearest, nearIdx, nearIsExternal = d, ped, nil, true
                                 if d < recruitRange then externalPeds[ped] = true end
