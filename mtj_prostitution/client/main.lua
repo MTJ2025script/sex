@@ -6,7 +6,7 @@ local ESX = exports['es_extended']:getSharedObject()
 local spawnedPeds   = {}      -- [index] = pedHandle
 local pedBlips      = {}      -- [index] = blipHandle
 local activePed     = nil     -- aktuell angeworbene Hure
-local state         = 'IDLE'  -- IDLE | RECRUITED | RIDING | MENU | SERVICE | DONE
+local state         = 'IDLE'  -- IDLE | RECRUITED | RECRUITED_FOOT | FOLLOWING | RIDING | MENU | SERVICE | DONE
 local lastService   = 0       -- Cooldown-Timer
 local lastApproachCall = 0    -- Throttle für Approach-Speech
 local targetSpot    = nil     -- vector3 der gewählten ruhigen Ecke
@@ -377,6 +377,61 @@ CreateThread(function()
                         end
                     end
                 end
+            else
+                -- ── Anwerben zu Fuß (kein Fahrzeug) ──────────────────────────
+                local player = PlayerPedId()
+                local pp = GetEntityCoords(player)
+                local nearest, nearIdx, nearDist = nil, nil, 9999.0
+                local nearIsExternal = false
+                for i, ped in pairs(spawnedPeds) do
+                    if DoesEntityExist(ped) and not IsPedDeadOrDying(ped, true) then
+                        local pc = GetEntityCoords(ped)
+                        local d = #(vector3(pp.x, pp.y, pp.z) - vector3(pc.x, pc.y, pc.z))
+                        if d < nearDist then
+                            nearDist, nearest, nearIdx, nearIsExternal = d, ped, i, false
+                        end
+                    end
+                end
+                for ped in pairs(externalPeds) do
+                    if DoesEntityExist(ped) and not IsPedDeadOrDying(ped, true) then
+                        local pc = GetEntityCoords(ped)
+                        local d = #(vector3(pp.x, pp.y, pp.z) - vector3(pc.x, pc.y, pc.z))
+                        if d < nearDist then
+                            nearDist, nearest, nearIdx, nearIsExternal = d, ped, nil, true
+                        end
+                    else
+                        externalPeds[ped] = nil
+                    end
+                end
+
+                if nearest and nearDist < 3.0 then
+                    sleep = 0
+                    local pc = GetEntityCoords(nearest)
+                    if not lastApproachCall or GetGameTimer() - lastApproachCall > 8000 then
+                        lastApproachCall = GetGameTimer()
+                        hookerSay(nearest, 'approach')
+                    end
+                    if Config.NoRecruitWhenWanted and GetPlayerWantedLevel(PlayerId()) > 0 then
+                        helpText('Sie kommt nicht mit, solange die ~r~Cops~s~ hinter dir her sind.')
+                    else
+                        helpText('Drücke ~INPUT_PICKUP~ um die Begleitung anzusprechen')
+                        DrawText3D(pc.x, pc.y, pc.z + 1.0, '~y~Begleitung~w~')
+                        if IsControlJustPressed(0, 38) then  -- E
+                            dbg('Nutte zu Fuß angeworben, Distanz:', math.floor(nearDist))
+                            activePed = nearest
+                            if nearIsExternal then
+                                externalPeds[nearest] = nil
+                            else
+                                spawnedPeds[nearIdx] = nil
+                                if pedBlips[nearIdx] then
+                                    if DoesBlipExist(pedBlips[nearIdx]) then RemoveBlip(pedBlips[nearIdx]) end
+                                    pedBlips[nearIdx] = nil
+                                end
+                            end
+                            state = 'RECRUITED_FOOT'
+                        end
+                    end
+                end
             end
         end
         Wait(sleep)
@@ -418,6 +473,90 @@ local function startRecruit()
     hookerSay(activePed, 'enter')
     startRideTalk()
     state = 'RIDING'
+end
+
+-- ════════════════════════════════════════════════════════════════
+--  FOLGE-MODUS (Fuß-Rekrutierung → gemeinsam zum Auto)
+-- ════════════════════════════════════════════════════════════════
+local function startFollowRecruit()
+    if not DoesEntityExist(activePed) then state = 'IDLE'; activePed = nil; return end
+
+    -- Szenario/KeepTask des Peds lösen
+    SetPedKeepTask(activePed, false)
+    ClearPedTasksImmediately(activePed)
+    FreezeEntityPosition(activePed, false)
+    SetBlockingOfNonTemporaryEvents(activePed, true)
+
+    hookerSay(activePed, 'enter')
+    notify('~y~Sie folgt dir.~s~ Geh zu deinem ~y~Fahrzeug~s~.')
+    state = 'FOLLOWING'
+
+    CreateThread(function()
+        local player   = PlayerPedId()
+        local t0       = GetGameTimer()
+        local TIMEOUT  = 60000   -- 60 s um ein Fahrzeug zu betreten
+        local MAX_DIST = 30.0    -- Abbruch wenn Spieler zu weit wegläuft
+
+        while state == 'FOLLOWING' do
+            if not DoesEntityExist(activePed) or IsPedDeadOrDying(activePed, true) then
+                cleanupEscort('~r~Sie ist weg.')
+                return
+            end
+
+            local playerPos = GetEntityCoords(player)
+            local pedPos    = GetEntityCoords(activePed)
+            local dist      = #(playerPos - pedPos)
+
+            -- Ped zu weit? -> Abbruch
+            if dist > MAX_DIST then
+                cleanupEscort('~r~Sie hat dich verloren.')
+                return
+            end
+
+            -- Timeout abgelaufen? -> Abbruch
+            if GetGameTimer() - t0 > TIMEOUT then
+                cleanupEscort('~r~Sie ist gegangen. Du hast zu lange gewartet.')
+                return
+            end
+
+            -- Follow-Task kontinuierlich erneuern (1 m hinter dem Spieler)
+            TaskFollowToOffsetOfEntity(activePed, player, 0.0, -1.0, 0.0, 1.5, -1, 0.5, true)
+
+            -- Hinweistext
+            helpText('Geh zu deinem ~y~Fahrzeug~s~. Sie folgt dir. (~r~' .. math.ceil((TIMEOUT - (GetGameTimer() - t0)) / 1000) .. 's~s~)')
+
+            -- Hat der Spieler ein Fahrzeug betreten (als Fahrer)?
+            local veh = getDriverVehicle()
+            if veh then
+                -- Ped zum Einsteigen auffordern
+                SetPedKeepTask(activePed, false)
+                ClearPedTasks(activePed)
+                TaskEnterVehicle(activePed, veh, 12000, 0, 2.0, 1, 0)
+                notify('~y~Sie steigt ein...~s~')
+
+                -- Warten bis sie drin ist (Watchdog 12 s)
+                local t1 = GetGameTimer()
+                while not IsPedInVehicle(activePed, veh, false) do
+                    Wait(300)
+                    if not DoesEntityExist(activePed) or not DoesEntityExist(veh) then
+                        state = 'IDLE'; activePed = nil; return
+                    end
+                    if GetGameTimer() - t1 > 12000 then
+                        SetPedIntoVehicle(activePed, veh, 0)
+                        break
+                    end
+                end
+
+                notify('~g~Sie ist drin.~s~ Fahr zu einer ~y~abgelegenen Stelle~s~.')
+                hookerSay(activePed, 'enter')
+                startRideTalk()
+                state = 'RIDING'
+                return
+            end
+
+            Wait(300)
+        end
+    end)
 end
 
 -- ════════════════════════════════════════════════════════════════
@@ -750,6 +889,8 @@ CreateThread(function()
         local sleep = 500
         if state == 'RECRUITED' then
             startRecruit()
+        elseif state == 'RECRUITED_FOOT' then
+            startFollowRecruit()
         elseif state == 'RIDING' then
             sleep = 0
             watchRiding()
