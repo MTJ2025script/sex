@@ -982,6 +982,15 @@ function runService(svc)
 
     loadAnimDict(DICT)
 
+    -- GTA-KI daran hindern, der Hure während des Services einen neuen primären Task
+    -- (z.B. Fahrzeug verlassen) zuzuweisen. Ohne diese Sperre verlässt sie das Auto
+    -- nach ~1 s, weil TaskPlayAnim(flag=49) den secondary-Task-Slot belegt und den
+    -- primären Slot leer lässt, den die Engine dann mit einem Exit-Task füllt.
+    if DoesEntityExist(activePed) then
+        SetBlockingOfNonTemporaryEvents(activePed, true)
+        SetPedKeepTask(activePed, true)
+    end
+
     -- Sitzposition während Service stabil halten (verhindert Offsets/"schief sitzen")
     local function stabilizeServiceSeats()
         if veh == 0 or not DoesEntityExist(veh) then return end
@@ -1167,6 +1176,7 @@ function runService(svc)
     if DoesEntityExist(activePed) then
         SetPedConfigFlag(activePed, 26, false)
         SetBlockingOfNonTemporaryEvents(activePed, false)
+        SetPedKeepTask(activePed, false)
         local v = GetVehiclePedIsIn(activePed, false)
         -- Nach dem Exit-Anim-Cleanup verliert der Ped kurz seinen Vehicle-Handle,
         -- obwohl er optisch noch im Service-Fahrzeug sitzt. Dann das bekannte
@@ -1228,6 +1238,7 @@ function cleanupEscort(msg)
     local cleanupVeh = 0
     if activePed and DoesEntityExist(activePed) then
         SetBlockingOfNonTemporaryEvents(activePed, false)
+        SetPedKeepTask(activePed, false)
         cleanupVeh = GetVehiclePedIsIn(activePed, false)
         local pedDead = IsPedDeadOrDying(activePed, true)
         dbg('[CLEANUP] cleanupEscort: ped=', activePed, 'veh=', cleanupVeh, 'dead=', pedDead, 'msg=', msg)
