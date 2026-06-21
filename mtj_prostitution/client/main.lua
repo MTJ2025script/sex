@@ -14,6 +14,9 @@ local spotBlip      = nil
 
 local DEFAULT_RECRUIT_DISTANCE = 9.0
 local SERVICE_ANIM_DICT = 'mini@prostitutes@sexnorm_veh'
+local SERVICE_ANIM_DICT_AF = 'mini@prostitutes@sexnorm_veh_af'
+local SERVICE_ANIM_DICTS = { SERVICE_ANIM_DICT, SERVICE_ANIM_DICT_AF }
+local HOOKER_03_MODEL = `s_f_y_hooker_03`
 local MENU_FAILSAFE_MS = 45000
 local RECRUIT_FAILSAFE_MS = 20000
 local FOLLOW_FAILSAFE_BUFFER_MS = 15000
@@ -248,9 +251,11 @@ end
 
 local function isPlayerInServiceAnimation(player)
     if not player or player == 0 then return false end
-    for _, anim in ipairs(SERVICE_PLAYER_ANIMS) do
-        if IsEntityPlayingAnim(player, SERVICE_ANIM_DICT, anim, 3) then
-            return true
+    for _, dict in ipairs(SERVICE_ANIM_DICTS) do
+        for _, anim in ipairs(SERVICE_PLAYER_ANIMS) do
+            if IsEntityPlayingAnim(player, dict, anim, 3) then
+                return true
+            end
         end
     end
     return false
@@ -258,10 +263,20 @@ end
 
 local function stopPlayerServiceAnimations(player)
     if not player or player == 0 or not DoesEntityExist(player) then return end
-    for _, anim in ipairs(SERVICE_PLAYER_ANIMS) do
-        StopAnimTask(player, SERVICE_ANIM_DICT, anim, 4.0)
+    for _, dict in ipairs(SERVICE_ANIM_DICTS) do
+        for _, anim in ipairs(SERVICE_PLAYER_ANIMS) do
+            StopAnimTask(player, dict, anim, 4.0)
+        end
     end
     ClearPedSecondaryTask(player)
+end
+
+local function getServiceAnimDictForPed(ped)
+    if ped and ped ~= 0 and DoesEntityExist(ped) and GetEntityModel(ped) == HOOKER_03_MODEL then
+        return SERVICE_ANIM_DICT_AF
+    end
+
+    return SERVICE_ANIM_DICT
 end
 
 local function releasePlayerLocks(forceClearTasks)
@@ -936,7 +951,7 @@ function runService(svc)
     local player = PlayerPedId()
     local veh = GetVehiclePedIsIn(player, false)
     local scene = svc.scene or 'sex'
-    local DICT = SERVICE_ANIM_DICT
+    local DICT = getServiceAnimDictForPed(activePed)
     local playerFemale = (GetEntityModel(player) == GetHashKey('mp_f_freemode_01'))
     local realDuration = (svc.loops or 6) * 2.5
     serviceFailSafeUntil = GetGameTimer() + math.max(math.floor(realDuration * 1000) + SERVICE_FAILSAFE_BUFFER_MS, 45000)
