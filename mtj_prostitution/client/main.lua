@@ -386,7 +386,7 @@ CreateThread(function()
                 for i, ped in pairs(spawnedPeds) do
                     if DoesEntityExist(ped) and not IsPedDeadOrDying(ped, true) then
                         local pc = GetEntityCoords(ped)
-                        local d = #(vector3(pp.x, pp.y, pp.z) - vector3(pc.x, pc.y, pc.z))
+                        local d = #(pp - pc)
                         if d < nearDist then
                             nearDist, nearest, nearIdx, nearIsExternal = d, ped, i, false
                         end
@@ -395,7 +395,7 @@ CreateThread(function()
                 for ped in pairs(externalPeds) do
                     if DoesEntityExist(ped) and not IsPedDeadOrDying(ped, true) then
                         local pc = GetEntityCoords(ped)
-                        local d = #(vector3(pp.x, pp.y, pp.z) - vector3(pc.x, pc.y, pc.z))
+                        local d = #(pp - pc)
                         if d < nearDist then
                             nearDist, nearest, nearIdx, nearIsExternal = d, ped, nil, true
                         end
@@ -492,12 +492,13 @@ local function startFollowRecruit()
     state = 'FOLLOWING'
 
     CreateThread(function()
-        local player   = PlayerPedId()
         local t0       = GetGameTimer()
         local TIMEOUT  = 60000   -- 60 s um ein Fahrzeug zu betreten
         local MAX_DIST = 30.0    -- Abbruch wenn Spieler zu weit wegläuft
 
         while state == 'FOLLOWING' do
+            local player = PlayerPedId()  -- jedes Mal neu holen (nach Respawn kann sich die ID ändern)
+
             if not DoesEntityExist(activePed) or IsPedDeadOrDying(activePed, true) then
                 cleanupEscort('~r~Sie ist weg.')
                 return
@@ -541,6 +542,11 @@ local function startFollowRecruit()
                     if not DoesEntityExist(activePed) or not DoesEntityExist(veh) then
                         state = 'IDLE'; activePed = nil; return
                     end
+                    -- Spieler nicht mehr Fahrer dieses Fahrzeugs? -> Abbruch
+                    if GetPedInVehicleSeat(veh, -1) ~= player then
+                        cleanupEscort('~r~Vorgang abgebrochen.')
+                        return
+                    end
                     if GetGameTimer() - t1 > 12000 then
                         SetPedIntoVehicle(activePed, veh, 0)
                         break
@@ -548,7 +554,7 @@ local function startFollowRecruit()
                 end
 
                 notify('~g~Sie ist drin.~s~ Fahr zu einer ~y~abgelegenen Stelle~s~.')
-                hookerSay(activePed, 'enter')
+                hookerSay(activePed, 'ride')
                 startRideTalk()
                 state = 'RIDING'
                 return
@@ -819,13 +825,13 @@ function runService(svc)
         SetPedConfigFlag(activePed, 26, false)
         SetBlockingOfNonTemporaryEvents(activePed, false)
         local v = GetVehiclePedIsIn(activePed, false)
-        TaskLeaveVehicle(activePed, v, 0)
+        if v ~= 0 then TaskLeaveVehicle(activePed, v, 0) end
         SetEntityAsNoLongerNeeded(activePed)
         local toDelete = activePed
         -- Warten bis die Ausstieg-Animation fertig ist, erst dann wandern
         CreateThread(function()
             local t0 = GetGameTimer()
-            while DoesEntityExist(toDelete) and IsPedInVehicle(toDelete, v, false) and GetGameTimer() - t0 < 6000 do
+            while v ~= 0 and DoesEntityExist(toDelete) and IsPedInVehicle(toDelete, v, false) and GetGameTimer() - t0 < 6000 do
                 Wait(200)
             end
             if DoesEntityExist(toDelete) then
