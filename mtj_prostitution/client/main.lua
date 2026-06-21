@@ -17,13 +17,11 @@ local spotBlip      = nil
 local externalPeds  = {}      -- [pedHandle] = true
 
 -- Hash-Set der konfigurierten Ped-Modelle für den Spiel-Pool-Scan.
--- Wird einmalig befüllt, damit GetHashKey nicht im Hot-Path aufgerufen werden muss.
+-- Synchron beim Script-Load befüllt, damit der Pool-Scan vom ersten Frame an korrekt arbeitet.
 local hookerModelHashes = {}
-CreateThread(function()
-    for _, model in ipairs(Config.PedModels) do
-        hookerModelHashes[GetHashKey(model)] = true
-    end
-end)
+for _, model in ipairs(Config.PedModels) do
+    hookerModelHashes[GetHashKey(model)] = true
+end
 
 -- Export: andere Resourcen melden ihre Huren-Peds hier an, damit sie
 -- per Hupe/E angeworben werden können (wie die Script-eigenen Huren).
@@ -339,7 +337,8 @@ CreateThread(function()
                 then
                     -- Nur Peds in der Nähe registrieren (Scan-Radius = max Erkennungsweite)
                     local scanRadius = math.max(Config.RecruitDistance or 9.0, Config.RecruitDistanceOnFoot or 9.0) + 5.0
-                    if #(GetEntityCoords(ped) - myPos) < scanRadius then
+                    local pedPos = GetEntityCoords(ped)
+                    if #(vector2(pedPos.x, pedPos.y) - vector2(myPos.x, myPos.y)) < scanRadius then
                         -- Nicht erneut eintragen wenn bereits in spawnedPeds
                         local inSpawned = false
                         for _, sp in pairs(spawnedPeds) do
