@@ -719,6 +719,27 @@ function runService(svc)
             SetCamCoord(cam, camPos.x, camPos.y, camPos.z)
             PointCamAtCoord(cam, lookAt.x, lookAt.y, lookAt.z)
         end
+
+        -- Spielt eine einmalige Übergangs-Animation (Enter/Exit) mit Steuerungs-
+        -- sperre und Kamera-Update pro Frame, damit kein abrupter Schnitt entsteht.
+        local function playOnce(hookerAnim, playerAnim)
+            local t = math.max(math.floor(GetAnimDuration(DICT, hookerAnim) * 1000), 1500)
+            if DoesEntityExist(activePed) then
+                TaskPlayAnim(activePed, DICT, hookerAnim, 2.0, 2.0, t, 0, 0.0, false, false, false)
+            end
+            TaskPlayAnim(player, DICT, playerAnim, 2.0, 2.0, t, 0, 0.0, false, false, false)
+            local endTime = GetGameTimer() + t
+            while GetGameTimer() < endTime do
+                if Config.LockControls then
+                    DisableControlAction(0, 71, true)
+                    DisableControlAction(0, 72, true)
+                    DisableControlAction(0, 59, true)
+                    DisableControlAction(0, 75, true)
+                end
+                if cam then placeCam() end
+                Wait(0)
+            end
+        end
         if Config.UseCinematicCam ~= false then
             cam = CreateCam('DEFAULT_SCRIPTED_CAMERA', true)
             placeCam()
@@ -728,7 +749,11 @@ function runService(svc)
             ShakeCam(cam, 'HAND_SHAKE', 0.12) -- dezentes Wackeln
         end
 
-        -- ── Direkt in die Loop-Animation (sofort, sauber sitzend im Auto) ──
+        -- ── Enter-Animationen (GTA-Stil: Übergang in die Service-Position) ──
+        playOnce(A.e1h, A.e1p)
+        playOnce(A.e2h, A.e2p)
+
+        -- ── Loop-Animation ──
         pair(A.lh, A.lp, 1, false)
 
         -- ── Auto wackeln (nur Sex) ──
@@ -778,17 +803,21 @@ function runService(svc)
         end
         rocking = false
 
-        SetVehicleLights(veh, 0)
-
-        -- KeepTask lösen, sonst lässt sich die Anim nicht stoppen
+        -- KeepTask lösen, damit die Exit-Animationen korrekt abspielen können
         SetPedKeepTask(player, false)
         if DoesEntityExist(activePed) then SetPedKeepTask(activePed, false) end
 
-        -- Animationen sauber stoppen, sonst hängt der Spieler in der Loop fest
-        StopAnimTask(player, DICT, A.lp, 4.0)
+        -- ── Exit-Animationen (GTA-Stil: sauber zurück in Sitzposition) ──
+        playOnce(A.x1h, A.x1p)
+        playOnce(A.x2h, A.x2p)
+
+        SetVehicleLights(veh, 0)
+
+        -- Animationen sauber abschließen (Sicherheits-Stop nach den Exit-Anims)
+        StopAnimTask(player, DICT, A.x2p, 4.0)
         ClearPedTasks(player)
         if DoesEntityExist(activePed) then
-            StopAnimTask(activePed, DICT, A.lh, 4.0)
+            StopAnimTask(activePed, DICT, A.x2h, 4.0)
             ClearPedTasks(activePed)
         end
 
