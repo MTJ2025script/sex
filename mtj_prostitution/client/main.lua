@@ -451,7 +451,7 @@ CreateThread(function()
                     end
                 end
 
-                if nearest and nearDist < Config.RecruitDistanceOnFoot then
+                if nearest and nearDist < (Config.RecruitDistanceOnFoot or Config.RecruitDistance or 9.0) then
                     sleep = 0
                     local pc = GetEntityCoords(nearest)
                     if not lastApproachCall or GetGameTimer() - lastApproachCall > 8000 then
