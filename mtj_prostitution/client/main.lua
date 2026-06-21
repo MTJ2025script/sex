@@ -270,6 +270,18 @@ local function getRecruitDistanceOnFoot()
     return Config.RecruitDistanceOnFoot or getRecruitDistance()
 end
 
+local function isRecognizedHookerPed(ped)
+    if not ped or ped == 0 or not DoesEntityExist(ped) then return false end
+    if IsPedAPlayer(ped) or IsPedDeadOrDying(ped, true) then return false end
+    if hookerModelHashes[GetEntityModel(ped)] then return true end
+
+    if Config.EnableStandardPedRecognition then
+        return IsPedHuman(ped) and not IsPedMale(ped)
+    end
+
+    return false
+end
+
 local function getDriverVehicle()
     local ped = PlayerPedId()
     if not IsPedInAnyVehicle(ped, false) then return nil end
@@ -355,8 +367,7 @@ CreateThread(function()
                     and ped ~= activePed
                     and DoesEntityExist(ped)
                     and not IsPedDeadOrDying(ped, true)
-                    and not IsPedAPlayer(ped)
-                    and hookerModelHashes[GetEntityModel(ped)]
+                    and isRecognizedHookerPed(ped)
                     and not externalPeds[ped]
                 then
                     -- Nur Peds in der Nähe registrieren (Scan-Radius = max Erkennungsweite)
@@ -485,8 +496,7 @@ CreateThread(function()
                             and ped ~= activePed
                             and DoesEntityExist(ped)
                             and not IsPedDeadOrDying(ped, true)
-                            and not IsPedAPlayer(ped)
-                            and hookerModelHashes[GetEntityModel(ped)]
+                            and isRecognizedHookerPed(ped)
                         then
                             local pedPos = GetEntityCoords(ped)
                             local d = #(vector2(pp.x, pp.y) - vector2(pedPos.x, pedPos.y))

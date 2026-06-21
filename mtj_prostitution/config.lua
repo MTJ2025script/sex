@@ -116,6 +116,10 @@ Config.PedModels = {
     `a_f_y_vinewood_04`,
 }
 
+-- true = erkennt zusätzlich normale weibliche NPC-Peds (Standard-FiveM-Peds)
+-- für E- bzw. Hupen-Prompt, auch wenn deren Modell nicht in Config.PedModels steht.
+Config.EnableStandardPedRecognition = true
+
 -- ════════════════════════════════════════════════════════════════
 --  SPAWN-ORTE (wo die Huren an der Straße stehen)
 --  heading = Blickrichtung
