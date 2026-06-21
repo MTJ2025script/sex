@@ -108,12 +108,14 @@ Config.Cam = {
 --  PEDS (Hurenmodelle)
 -- ════════════════════════════════════════════════════════════════
 
+-- NUR die echten GTA-Online-Hooker-Modelle eintragen!
+-- Generische Ambient-Models (a_f_y_*) NICHT hier hinzufügen –
+-- diese erscheinen überall in der Spielwelt und würden als Eskorte erkannt.
+-- npc_dashboard-Peds werden automatisch über RegisterHooker/registerExternalPed eingetragen.
 Config.PedModels = {
     `s_f_y_hooker_01`,
     `s_f_y_hooker_02`,
     `s_f_y_hooker_03`,
-    `a_f_y_vinewood_01`,
-    `a_f_y_vinewood_04`,
 }
 
 -- true = erkennt zusätzlich normale weibliche NPC-Peds (Standard-FiveM-Peds)
