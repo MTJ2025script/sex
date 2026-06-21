@@ -602,7 +602,6 @@ local function startFollowRecruit()
     FreezeEntityPosition(activePed, false)
     SetBlockingOfNonTemporaryEvents(activePed, true)
 
-    hookerSay(activePed, 'enter')
     notify('~y~Sie folgt dir.~s~ Geh zu deinem ~y~Fahrzeug~s~.')
     state = 'FOLLOWING'
 
