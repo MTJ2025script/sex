@@ -1012,7 +1012,7 @@ function runService(svc)
 
         -- Animationen sauber abschließen (Sicherheits-Stop nach den Exit-Anims)
         StopAnimTask(player, DICT, A.x2p, 4.0)
-        ClearPedTasks(player)
+        ClearPedSecondaryTask(player)   -- nur Anim-Task; ClearPedTasks würde den Vehicle-Task stören und das Auto einfrieren
         if DoesEntityExist(activePed) then
             StopAnimTask(activePed, DICT, A.x2h, 4.0)
             ClearPedTasksImmediately(activePed)
@@ -1047,7 +1047,7 @@ function runService(svc)
 
     serviceFailSafeUntil = 0
     serviceAbortRequested = false
-    releasePlayerLocks(true)
+    releasePlayerLocks(false)   -- Anims bereits über StopAnimTask+ClearPedSecondaryTask beendet; kein Force-Clear nötig
     if Config.RestoreHealth then SetEntityHealth(player, GetEntityMaxHealth(player)) end
     if Config.RestoreArmor then SetPedArmour(player, 100) end
 
